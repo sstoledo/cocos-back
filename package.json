@@ -33,6 +33,9 @@
     "pnpm": ">=9"
   },
   "packageManager": "pnpm@9.15.0",
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@nestjs/common": "10.4.22",
     "@nestjs/config": "3.3.0",
