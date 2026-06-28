@@ -10,6 +10,7 @@ NestJS + Prisma + better-auth backend for the Cocos workshop ERP MVP.
 - [better-auth](https://www.better-auth.com/) (email/password, reset password, email verification)
 - PostgreSQL 16
 - Cloudinary (product images)
+- [Biome](https://biomejs.dev/) (lint + format)
 
 ## Getting started
 
@@ -72,8 +73,11 @@ The API runs on `http://localhost:4000/api`. Auth handlers are mounted at `/api/
 | `npm run build` | Production build |
 | `npm run test` | Unit tests |
 | `npm run test:e2e` | End-to-end tests |
-| `npm run lint` | ESLint |
-| `npm run format` | Prettier |
+| `npm run lint` | Biome lint |
+| `npm run lint:fix` | Biome lint with auto-fix |
+| `npm run format` | Biome format |
+| `npm run format:check` | Check Biome formatting |
+| `npm run check` | Biome lint + format |
 | `npm run audit` | Check for known vulnerabilities |
 | `npm run audit:fix` | Auto-fix non-breaking vulnerabilities |
 
