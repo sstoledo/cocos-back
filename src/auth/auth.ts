@@ -23,7 +23,7 @@ export const auth = betterAuth({
     additionalFields: {
       roleId: {
         type: 'string',
-        required: true,
+        required: false,
         input: false,
       },
     },
