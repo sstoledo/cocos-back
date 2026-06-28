@@ -18,7 +18,7 @@ jest.mock('better-auth/node', () => ({
   ),
 }));
 
-import { auth } from '../auth/auth';
+import { auth } from '../auth';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 

@@ -8,9 +8,7 @@ import {
 import { RoleName } from '@prisma/client';
 import { fromNodeHeaders } from 'better-auth/node';
 import type { Request } from 'express';
-import { auth } from '../auth/auth';
-import { RolesGuard } from '../auth/role.guard';
-import { Roles } from '../auth/roles.decorator';
+import { Roles, RolesGuard, auth } from '../auth';
 import { UsersService } from './users.service';
 
 @Controller('users')

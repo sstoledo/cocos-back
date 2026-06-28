@@ -19,7 +19,7 @@ jest.mock('better-auth/node', () => ({
   ),
 }));
 
-import { auth } from './../src/auth/auth';
+import { auth } from './../src/auth';
 
 const mockedGetSession = auth.api.getSession as unknown as jest.Mock;
 

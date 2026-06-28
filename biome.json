@@ -15,11 +15,8 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      "suspicious": {
-        "noExplicitAny": "warn"
-      },
+      "suspicious": {},
       "style": {
-        "noNonNullAssertion": "warn",
         "useImportType": "off"
       }
     }
