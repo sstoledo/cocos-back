@@ -1,6 +1,21 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
+
+jest.mock('./../src/auth/auth', () => ({
+  auth: {
+    api: {
+      getSession: jest.fn(),
+    },
+  },
+}));
+
+jest.mock('better-auth/node', () => ({
+  fromNodeHeaders: jest.fn(
+    (headers: Record<string, string>) => new Headers(headers)
+  ),
+}));
+
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 
