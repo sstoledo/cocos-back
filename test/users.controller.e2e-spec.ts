@@ -1,12 +1,12 @@
-import type { ExecutionContext, INestApplication } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { RoleName } from '@prisma/client';
 import request from 'supertest';
-import { RolesGuard } from '../auth/role.guard';
-import { PrismaService } from '../prisma/prisma.service';
+import { RolesGuard } from '../src/auth/role.guard';
+import { PrismaService } from '../src/prisma/prisma.service';
 
-jest.mock('../auth/auth', () => ({
+jest.mock('../src/auth/auth', () => ({
   auth: {
     api: {
       getSession: jest.fn(),
@@ -20,13 +20,13 @@ jest.mock('better-auth/node', () => ({
   ),
 }));
 
-import { auth } from '../auth/auth';
-import { UsersController } from './users.controller';
-import { UsersService } from './users.service';
+import { auth } from '../src/auth/auth';
+import { UsersController } from '../src/users/users.controller';
+import { UsersService } from '../src/users/users.service';
 
 const mockedGetSession = auth.api.getSession as unknown as jest.Mock;
 
-describe('UsersController', () => {
+describe('UsersController (e2e)', () => {
   let app: INestApplication;
   const mockUsersService = {
     findMe: jest.fn(),
