@@ -6,9 +6,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
-import { fromNodeHeaders } from 'better-auth/node';
-import type { Request } from 'express';
-import { Roles, RolesGuard, auth } from '../auth';
+import { type RequestWithUser, Roles, RolesGuard } from '../auth';
 import { UsersService } from './users.service';
 
 @Controller('users')
@@ -25,15 +23,11 @@ export class UsersController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  async getMe(@Req() request: Request) {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(request.headers),
-    });
-
-    if (!session) {
+  async getMe(@Req() request: RequestWithUser) {
+    if (!request.user) {
       throw new UnauthorizedException();
     }
 
-    return this.usersService.findMe(session.user.id);
+    return this.usersService.findMe(request.user.id);
   }
 }

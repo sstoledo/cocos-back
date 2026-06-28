@@ -1,7 +1,9 @@
-import type { INestApplication } from '@nestjs/common';
+import type { ExecutionContext, INestApplication } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { RoleName } from '@prisma/client';
 import request from 'supertest';
+import { RolesGuard } from '../auth/role.guard';
 import { PrismaService } from '../prisma/prisma.service';
 
 jest.mock('../auth/auth', () => ({
@@ -18,7 +20,7 @@ jest.mock('better-auth/node', () => ({
   ),
 }));
 
-import { auth } from '../auth';
+import { auth } from '../auth/auth';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
@@ -41,6 +43,8 @@ describe('UsersController', () => {
       providers: [
         { provide: UsersService, useValue: mockUsersService },
         { provide: PrismaService, useValue: mockPrismaService },
+        RolesGuard,
+        Reflector,
       ],
     }).compile();
 

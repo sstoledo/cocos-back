@@ -10,6 +10,7 @@ import type { RoleName } from '@prisma/client';
 import { fromNodeHeaders } from 'better-auth/node';
 import { PrismaService } from '../prisma/prisma.service';
 import { auth } from './auth';
+import type { RequestWithUser } from './request';
 import { ROLES_KEY } from './roles.decorator';
 
 @Injectable()
@@ -29,7 +30,7 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(request.headers),
     });
@@ -50,6 +51,8 @@ export class RolesGuard implements CanActivate {
     if (!requiredRoles.includes(user.role.name)) {
       throw new ForbiddenException();
     }
+
+    request.user = user;
 
     return true;
   }

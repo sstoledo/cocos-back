@@ -72,7 +72,7 @@ describe('RolesGuard', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it('allows access when the user has a permitted role', async () => {
+  it('allows access when the user has a permitted role and attaches user to request', async () => {
     class TestController {
       handler() {
         return 'ok';
@@ -101,6 +101,10 @@ describe('RolesGuard', () => {
     expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'user-1' },
       include: { role: true },
+    });
+    expect(request).toHaveProperty('user', {
+      id: 'user-1',
+      role: { name: RoleName.Reception },
     });
   });
 
