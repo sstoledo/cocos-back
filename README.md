@@ -23,14 +23,15 @@ NestJS + Prisma + better-auth backend for the Cocos workshop ERP MVP.
 
 ### Supply-chain safety
 
-This project pins exact dependency versions and requires the Node version declared in `.nvmrc`:
+This project pins exact dependency versions and requires the Node version declared in `.nvmrc` and pnpm declared in `packageManager`:
 
 ```bash
 nvm use          # reads .nvmrc
-npm ci           # installs exact versions from package-lock.json
+corepack enable  # optional, lets Node use the packageManager field automatically
+pnpm install     # installs exact versions from pnpm-lock.yaml
 ```
 
-Never use `npm install` in production or before a release; it can bump versions silently. Run `npm run audit` periodically to check for known vulnerabilities.
+Never use `npm install` or `pnpm update` in production or before a release; they can bump versions silently. Run `pnpm audit` periodically to check for known vulnerabilities.
 
 ### Database setup
 
@@ -45,9 +46,9 @@ Then copy the environment file and run the first migration:
 ```bash
 cp .env.template .env
 # edit .env if needed (defaults match the Docker Compose service)
-npm ci
+pnpm install
 npx prisma migrate dev
-npm run start:dev
+pnpm start:dev
 ```
 
 The API runs on `http://localhost:4000/api`. Auth handlers are mounted at `/api/auth/*`.
@@ -69,17 +70,17 @@ The API runs on `http://localhost:4000/api`. Auth handlers are mounted at `/api/
 
 | Script | Description |
 |---|---|
-| `npm run start:dev` | Run in watch mode |
-| `npm run build` | Production build |
-| `npm run test` | Unit tests |
-| `npm run test:e2e` | End-to-end tests |
-| `npm run lint` | Biome lint |
-| `npm run lint:fix` | Biome lint with auto-fix |
-| `npm run format` | Biome format |
-| `npm run format:check` | Check Biome formatting |
-| `npm run check` | Biome lint + format |
-| `npm run audit` | Check for known vulnerabilities |
-| `npm run audit:fix` | Auto-fix non-breaking vulnerabilities |
+| `pnpm start:dev` | Run in watch mode |
+| `pnpm build` | Production build |
+| `pnpm test` | Unit tests |
+| `pnpm test:e2e` | End-to-end tests |
+| `pnpm lint` | Biome lint |
+| `pnpm lint:fix` | Biome lint with auto-fix |
+| `pnpm format` | Biome format |
+| `pnpm format:check` | Check Biome formatting |
+| `pnpm check` | Biome lint + format |
+| `pnpm audit` | Check for known vulnerabilities |
+| `pnpm audit:fix` | Auto-fix non-breaking vulnerabilities |
 
 ## Project structure
 
