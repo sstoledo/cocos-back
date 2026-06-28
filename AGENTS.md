@@ -35,6 +35,7 @@ Cocos is a mechanic-shop ERP backend built with NestJS. It exposes REST APIs for
 - Use `import type { ... }` for type-only imports.
 - Internal imports use relative paths from the same feature (`./role.guard`) or barrel (`../auth`).
 - Do not add path aliases beyond the existing base URL; NestJS resolves relative imports.
+- Exception for tests: when a barrel file re-exports an ESM-only dependency that Jest cannot transform (e.g., `better-auth`), tests may import guards/decorators directly from their source files to avoid loading that dependency.
 
 ### Formatting
 
