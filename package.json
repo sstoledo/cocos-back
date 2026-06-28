@@ -17,7 +17,13 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix"
+  },
+  "engines": {
+    "node": "22",
+    "npm": ">=10"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -37,7 +43,7 @@
     "@nestjs/testing": "^10.4.0",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.12",
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.10.5",
     "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",

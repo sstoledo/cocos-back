@@ -4,26 +4,47 @@ NestJS + Prisma + better-auth backend for the Cocos workshop ERP MVP.
 
 ## Stack
 
+- [Node.js 22 LTS](https://nodejs.org/)
 - [NestJS 10](https://nestjs.com/)
 - [Prisma 6](https://www.prisma.io/)
 - [better-auth](https://www.better-auth.com/) (email/password, reset password, email verification)
-- PostgreSQL
+- PostgreSQL 16
 - Cloudinary (product images)
 
 ## Getting started
 
 ### Prerequisites
 
-- Node.js 20+
-- PostgreSQL 15+
+- Node.js 22 LTS (use `.nvmrc`)
+- npm 10+
+- Docker (for PostgreSQL)
 - Cloudinary account (for image uploads)
 
-### Install
+### Supply-chain safety
+
+This project pins exact dependency versions and requires the Node version declared in `.nvmrc`:
+
+```bash
+nvm use          # reads .nvmrc
+npm ci           # installs exact versions from package-lock.json
+```
+
+Never use `npm install` in production or before a release; it can bump versions silently. Run `npm run audit` periodically to check for known vulnerabilities.
+
+### Database setup
+
+```bash
+# Start PostgreSQL in Docker and wait until it is healthy
+chmod +x scripts/setup-db.sh
+./scripts/setup-db.sh
+```
+
+Then copy the environment file and run the first migration:
 
 ```bash
 cp .env.template .env
-# edit .env with your credentials
-npm install
+# edit .env if needed (defaults match the Docker Compose service)
+npm ci
 npx prisma migrate dev
 npm run start:dev
 ```
@@ -53,6 +74,8 @@ The API runs on `http://localhost:4000/api`. Auth handlers are mounted at `/api/
 | `npm run test:e2e` | End-to-end tests |
 | `npm run lint` | ESLint |
 | `npm run format` | Prettier |
+| `npm run audit` | Check for known vulnerabilities |
+| `npm run audit:fix` | Auto-fix non-breaking vulnerabilities |
 
 ## Project structure
 
