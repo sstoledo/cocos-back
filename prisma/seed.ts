@@ -11,15 +11,11 @@ async function main() {
   });
 
   const createdRoles = await prisma.role.findMany();
-  console.log(
-    `Seeded ${createdRoles.length} roles:`,
-    createdRoles.map((role) => role.name).join(', '),
-  );
+  return createdRoles;
 }
 
 main()
-  .catch((error) => {
-    console.error(error);
+  .catch(() => {
     process.exit(1);
   })
   .finally(async () => {
