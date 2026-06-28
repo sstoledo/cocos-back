@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: Cocos ERP Backend API
+  description: |
+    REST API for the Cocos mechanic-shop ERP.
+    Auth endpoints are provided by better-auth under `/api/auth`.
+  version: 0.0.1
+  contact:
+    name: Cocos Team
+servers:
+  - url: http://localhost:4000
+    description: Local development server
+tags:
+  - name: Auth
+    description: Session-based authentication via better-auth
+  - name: Users
+    description: User profile endpoints
+paths:
+  /api/auth/sign-up/email:
+    post:
+      summary: Register a new user with email and password
+      description: Creates a user account and assigns the default `Reception` role.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  minLength: 8
+                  example: StrongPass123
+                name:
+                  type: string
+                  example: Juan Pérez
+      responses:
+        '200':
+          description: User registered and session cookie set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: better-auth session cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithRole'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/sign-in/email:
+    post:
+      summary: Sign in with email and password
+      description: Starts a session and returns user data with role.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  example: StrongPass123
+                rememberMe:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Signed in successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: better-auth session cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithRole'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/sign-out:
+    post:
+      summary: Sign out the current user
+      description: Invalidates the session cookie.
+      tags:
+        - Auth
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Signed out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/auth/send-verification-email:
+    post:
+      summary: Request email verification
+      description: Sends a verification email to the logged-in user. Requires an active session.
+      tags:
+        - Auth
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Verification email sent
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/forget-password:
+    post:
+      summary: Request password reset email
+      description: Sends a password reset link to the given email address.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        '200':
+          description: Reset email sent if account exists
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/auth/reset-password:
+    post:
+      summary: Reset password with token
+      description: Sets a new password using the token received by email.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - newPassword
+              properties:
+                token:
+                  type: string
+                  description: Reset token from the email link
+                  example: abcdef123456
+                newPassword:
+                  type: string
+                  minLength: 8
+                  example: NewStrongPass123
+      responses:
+        '200':
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/users/me:
+    get:
+      summary: Get current authenticated user
+      description: Returns the current user profile including their role. Requires any authenticated MVP role.
+      tags:
+        - Users
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithRole'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    betterAuthCookie:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Session cookie set by better-auth after sign-in/sign-up.
+
+  schemas:
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          example: role-1
+        name:
+          type: string
+          enum:
+            - Admin
+            - Reception
+            - Mechanic
+            - Warehouse
+            - Purchasing
+            - ReadOnly
+          example: Reception
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: user-1
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        name:
+          type: string
+          example: Juan Pérez
+        emailVerified:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserWithRole:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            role:
+              $ref: '#/components/schemas/Role'
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        error:
+          type: string
+        statusCode:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Missing or invalid session
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Insufficient role permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
