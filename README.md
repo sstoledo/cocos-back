@@ -17,10 +17,16 @@ NestJS + Prisma + better-auth backend for the Cocos workshop ERP MVP.
 ### Prerequisites
 
 - Node.js 22 LTS (use `.nvmrc`)
-- npm 10+
-- Docker (for PostgreSQL)
+- pnpm 9+ (see `packageManager` in `package.json`)
+- Docker Engine 20+
+- Docker Compose (plugin or standalone package)
 - Cloudinary account (for image uploads)
 
+On Arch / CachyOS install Docker Compose with:
+
+```bash
+sudo pacman -S docker-compose
+```
 ### Supply-chain safety
 
 This project pins exact dependency versions and requires the Node version declared in `.nvmrc` and pnpm declared in `packageManager`:
