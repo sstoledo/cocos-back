@@ -1,13 +1,30 @@
 import type { INestApplication } from '@nestjs/common';
-import { Test, type TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
+
+jest.mock('better-auth', () => ({
+  betterAuth: jest.fn(() => ({
+    api: { getSession: jest.fn() },
+  })),
+}));
+
+jest.mock('better-auth/adapters/prisma', () => ({
+  prismaAdapter: jest.fn(() => ({ provider: 'postgresql' })),
+}));
+
+jest.mock('better-auth/node', () => ({
+  toNodeHandler: jest.fn(() => jest.fn()),
+  fromNodeHeaders: jest.fn((headers) => headers),
+}));
 
 describe('AppController (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
