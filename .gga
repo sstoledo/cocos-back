@@ -1,6 +1,6 @@
 PROVIDER="opencode"
 FILE_PATTERNS="*.ts,*.tsx,*.js,*.jsx,*.json,*.prisma,*.yml,*.yaml,*.sh,.nvmrc,*.sql,docker-compose*.yml"
-EXCLUDE_PATTERNS="*.test.ts,*.spec.ts,*.test.tsx,*.spec.tsx,*.d.ts,node_modules/*,dist/*,build/*,.prisma/*"
+EXCLUDE_PATTERNS="*.d.ts,node_modules/*,dist/*,build/*,.prisma/*"
 RULES_FILE="AGENTS.md"
 STRICT_MODE="true"
 TIMEOUT="300"
