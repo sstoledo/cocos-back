@@ -2,6 +2,9 @@
 /dist
 /node_modules
 
+# AI assistant cache
+.atl/
+
 # logs
 logs
 *.log

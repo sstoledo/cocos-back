@@ -73,7 +73,7 @@ Cocos is a mechanic-shop ERP backend built with NestJS. It exposes REST APIs for
 ## Forbidden Patterns
 
 - Do not create controllers or services without tests.
-- Do not call `new PrismaClient()` in business logic; inject `PrismaService`. Exception: `src/auth/auth.ts` may create a dedicated `PrismaClient` for `better-auth` initialization because the auth instance is needed before NestJS dependency injection is available.
+- Do not call `new PrismaClient()` in business logic; inject `PrismaService`. Exceptions: `src/auth/auth.ts` may create a dedicated `PrismaClient` for `better-auth` initialization because the auth instance is needed before NestJS dependency injection is available; `prisma/seed.ts` may create a standalone `PrismaClient` because it runs outside the NestJS runtime.
 - Do not bypass `RolesGuard` on state-changing endpoints.
 - Do not use `any` without a `// biome-ignore lint/suspicious/noExplicitAny: <reason>` comment.
 - Do not commit `console.log`, `debugger`, or temporary `skip`/`only` in tests.
