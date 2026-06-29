@@ -6,6 +6,7 @@ describe('UsersService', () => {
   let prisma: PrismaService;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     const findUnique = jest.fn();
     prisma = { user: { findUnique } } as unknown as PrismaService;
     service = new UsersService(prisma);
