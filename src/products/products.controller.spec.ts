@@ -1,5 +1,5 @@
-import type { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
+import type { ProductsService } from './products.service';
 
 jest.mock('../auth/auth', () => ({
   auth: {
@@ -35,7 +35,9 @@ describe('ProductsController', () => {
         { id: 'product-1', name: 'Engine oil' },
         { id: 'product-2', name: 'Brake pads' },
       ];
-      (productsService.findAll as unknown as jest.Mock).mockResolvedValue(products);
+      (productsService.findAll as unknown as jest.Mock).mockResolvedValue(
+        products
+      );
 
       const result = await controller.findAll();
 
@@ -47,7 +49,9 @@ describe('ProductsController', () => {
   describe('findOne', () => {
     it('returns the product with the requested id', async () => {
       const product = { id: 'product-1', name: 'Engine oil' };
-      (productsService.findOne as unknown as jest.Mock).mockResolvedValue(product);
+      (productsService.findOne as unknown as jest.Mock).mockResolvedValue(
+        product
+      );
 
       const result = await controller.findOne('product-1');
 
@@ -68,7 +72,9 @@ describe('ProductsController', () => {
         isActive: true,
       };
       const created = { id: 'product-1', ...dto };
-      (productsService.create as unknown as jest.Mock).mockResolvedValue(created);
+      (productsService.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
 
       const result = await controller.create(dto as never);
 
@@ -81,7 +87,9 @@ describe('ProductsController', () => {
     it('updates a product using the provided id and dto', async () => {
       const dto = { name: 'Engine oil premium' };
       const updated = { id: 'product-1', ...dto };
-      (productsService.update as unknown as jest.Mock).mockResolvedValue(updated);
+      (productsService.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
 
       const result = await controller.update('product-1', dto as never);
 
@@ -93,7 +101,9 @@ describe('ProductsController', () => {
   describe('remove', () => {
     it('deletes the product with the requested id', async () => {
       const removed = { id: 'product-1', name: 'Engine oil' };
-      (productsService.remove as unknown as jest.Mock).mockResolvedValue(removed);
+      (productsService.remove as unknown as jest.Mock).mockResolvedValue(
+        removed
+      );
 
       const result = await controller.remove('product-1');
 

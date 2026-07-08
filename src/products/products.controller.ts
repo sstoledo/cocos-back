@@ -11,8 +11,8 @@ import {
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CreateProductDto } from './dto/create-product.dto';
-import { ProductsService } from './products.service';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductsService } from './products.service';
 
 @Controller('products')
 @UseGuards(RolesGuard)
