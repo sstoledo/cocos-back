@@ -1,4 +1,3 @@
-import { RoleName } from '@prisma/client';
 import type { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
 

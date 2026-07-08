@@ -10,9 +10,9 @@ import {
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
-import type { CreateProductDto } from './dto/create-product.dto';
-import type { ProductsService } from './products.service';
-import type { UpdateProductDto } from './dto/update-product.dto';
+import { CreateProductDto } from './dto/create-product.dto';
+import { ProductsService } from './products.service';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @Controller('products')
 @UseGuards(RolesGuard)
