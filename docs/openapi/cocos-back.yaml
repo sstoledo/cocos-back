@@ -15,6 +15,8 @@ tags:
     description: Session-based authentication via better-auth
   - name: Users
     description: User profile endpoints
+  - name: Products
+    description: Product catalog endpoints
 paths:
   /api/auth/sign-up/email:
     post:
@@ -215,15 +217,322 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-components:
-  securitySchemes:
-    betterAuthCookie:
-      type: apiKey
-      in: cookie
-      name: better-auth.session_token
-      description: Session cookie set by better-auth after sign-in/sign-up.
+  /api/products:
+    get:
+      summary: List and search products
+      description: Returns the product catalog. Query parameters are accepted but currently ignored by the backend; all products are returned.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Free-text search term (reserved for future use)
+        - name: isActive
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Filter by active status (reserved for future use)
+      responses:
+        '200':
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Create a product
+      description: Creates a new product. An optional image can be uploaded as multipart/form-data. Admin role required.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateProduct'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
 
+  /api/products/{id}:
+    get:
+      summary: Get a product by ID
+      description: Returns a single product by its ID. Any authenticated user can read.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update a product
+      description: Updates an existing product. An optional image can be uploaded to replace the current one. Admin role required.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateProduct'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+    delete:
+      summary: Delete a product
+      description: Removes the product and schedules Cloudinary image cleanup asynchronously. Admin role required.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/products/{id}/image:
+    delete:
+      summary: Remove a product image
+      description: Clears the image fields from the product and schedules Cloudinary asset deletion. Admin role required.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Image removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
   schemas:
+    CreateProduct:
+      type: object
+      required:
+        - code
+        - name
+        - price
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: OIL-001
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Engine oil
+        description:
+          type: string
+          maxLength: 2000
+          example: Synthetic engine oil 5W-30
+        price:
+          type: string
+          description: Positive decimal amount, serialized as a string
+          example: '30.00'
+        minStock:
+          type: integer
+          minimum: 0
+          example: 10
+        unit:
+          type: string
+          enum:
+            - unit
+            - liter
+            - kg
+            - piece
+          example: liter
+        isActive:
+          type: boolean
+          example: true
+        image:
+          type: string
+          format: binary
+          description: Optional product image (JPEG, PNG or WEBP, max 2 MB)
+
+    UpdateProduct:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: OIL-001
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Engine oil
+        description:
+          type: string
+          maxLength: 2000
+        price:
+          type: string
+          description: Positive decimal amount, serialized as a string
+          example: '35.00'
+        minStock:
+          type: integer
+          minimum: 0
+        unit:
+          type: string
+          enum:
+            - unit
+            - liter
+            - kg
+            - piece
+        isActive:
+          type: boolean
+        image:
+          type: string
+          format: binary
+          description: Optional replacement image (JPEG, PNG or WEBP, max 2 MB)
+
+    ProductResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: product-1
+        code:
+          type: string
+          example: OIL-001
+        name:
+          type: string
+          example: Engine oil
+        description:
+          type: string
+          example: Synthetic engine oil 5W-30
+        price:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '30.00'
+        minStock:
+          type: integer
+          example: 10
+        unit:
+          type: string
+          enum:
+            - unit
+            - liter
+            - kg
+            - piece
+          example: liter
+        imageUrl:
+          type: string
+          format: uri
+          example: https://res.cloudinary.example.com/products/fake.jpg
+        imagePublicId:
+          type: string
+          example: products/fake-123
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     Role:
       type: object
       properties:
@@ -282,6 +591,13 @@ components:
         statusCode:
           type: integer
 
+  securitySchemes:
+    betterAuthCookie:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Session cookie set by better-auth after sign-in/sign-up.
+
   responses:
     BadRequest:
       description: Malformed request
@@ -299,6 +615,34 @@ components:
 
     Forbidden:
       description: Insufficient role permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Resource conflict (e.g. duplicate product code)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    PayloadTooLarge:
+      description: Request payload exceeds the allowed size
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    UnsupportedMediaType:
+      description: File type is not supported
       content:
         application/json:
           schema:
