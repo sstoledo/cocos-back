@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 
 export interface UploadedImage {
   url: string;
@@ -9,16 +10,39 @@ export interface UploadedImage {
 @Injectable()
 export class UploadService {
   constructor(private readonly config: ConfigService) {
-    this.config.get<string>('CLOUDINARY_CLOUD_NAME');
-    this.config.get<string>('CLOUDINARY_API_KEY');
-    this.config.get<string>('CLOUDINARY_API_SECRET');
+    cloudinary.config({
+      cloud_name: this.config.get<string>('CLOUDINARY_CLOUD_NAME'),
+      api_key: this.config.get<string>('CLOUDINARY_API_KEY'),
+      api_secret: this.config.get<string>('CLOUDINARY_API_SECRET'),
+    });
   }
 
-  uploadImage(_buffer: Buffer, _folder: string): Promise<UploadedImage> {
-    return Promise.reject(new Error('UploadService not implemented'));
+  uploadImage(buffer: Buffer, folder: string): Promise<UploadedImage> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder },
+        (error, result: UploadApiResponse) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ url: result.secure_url, publicId: result.public_id });
+        }
+      );
+      uploadStream.on('error', reject);
+      uploadStream.end(buffer);
+    });
   }
 
-  deleteImage(_publicId: string): Promise<void> {
-    return Promise.reject(new Error('UploadService not implemented'));
+  deleteImage(publicId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      cloudinary.uploader.destroy(publicId, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
   }
 }
