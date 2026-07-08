@@ -27,8 +27,7 @@ lerna-debug.log*
 !.env.template
 
 # Prisma
-/prisma/migrations/*
-!/prisma/migrations/.gitkeep
+# Migrations are tracked to enable `prisma migrate deploy` in CI/CD.
 
 # IDE
 .idea
