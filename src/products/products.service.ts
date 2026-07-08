@@ -1,30 +1,81 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../prisma/prisma.service';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Product } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { plainToInstance } from 'class-transformer';
+import { PrismaService } from '../prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
 import type { CreateProductDto } from './dto/create-product.dto';
+import { ProductResponseDto } from './dto/product-response.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService
+  ) {}
 
-  findAll() {
-    return this.prisma.product.findMany({ orderBy: { name: 'asc' } });
+  async findAll() {
+    const products = await this.prisma.product.findMany({
+      orderBy: { name: 'asc' },
+    });
+    return products.map((product) => this.toResponse(product));
   }
 
-  findOne(id: string) {
-    return this.prisma.product.findUnique({ where: { id } });
+  async findOne(id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    return product ? this.toResponse(product) : null;
   }
 
-  create(dto: CreateProductDto) {
-    return this.prisma.product.create({ data: dto });
+  async create(dto: CreateProductDto, image?: Express.Multer.File) {
+    const data = await this.buildProductData(dto, image);
+
+    try {
+      const created = await this.prisma.product.create({ data });
+      return this.toResponse(created);
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException();
+      }
+      throw error;
+    }
   }
 
-  async update(id: string, dto: UpdateProductDto) {
+  async update(id: string, dto: UpdateProductDto, image?: Express.Multer.File) {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) {
       throw new NotFoundException();
     }
-    return this.prisma.product.update({ where: { id }, data: dto });
+
+    const data = await this.buildProductData(dto, image);
+
+    try {
+      const updated = await this.prisma.product.update({ where: { id }, data });
+      if (image && product.imagePublicId) {
+        this.uploadService.deleteImage(product.imagePublicId).catch((error) => {
+          console.error(
+            `Failed to delete old image ${product.imagePublicId}`,
+            error
+          );
+        });
+      }
+      return this.toResponse(updated);
+    } catch (error) {
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException();
+      }
+      throw error;
+    }
   }
 
   async remove(id: string) {
@@ -32,6 +83,52 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException();
     }
-    return this.prisma.product.delete({ where: { id } });
+
+    const deleted = await this.prisma.product.delete({ where: { id } });
+    if (product.imagePublicId) {
+      this.uploadService.deleteImage(product.imagePublicId).catch((error) => {
+        console.error(`Failed to delete image ${product.imagePublicId}`, error);
+      });
+    }
+    return this.toResponse(deleted);
+  }
+
+  async removeImage(id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) {
+      throw new NotFoundException();
+    }
+
+    const updated = await this.prisma.product.update({
+      where: { id },
+      data: { imageUrl: null, imagePublicId: null },
+    });
+    if (product.imagePublicId) {
+      this.uploadService.deleteImage(product.imagePublicId).catch((error) => {
+        console.error(`Failed to delete image ${product.imagePublicId}`, error);
+      });
+    }
+    return this.toResponse(updated);
+  }
+
+  private toResponse(product: Product): ProductResponseDto {
+    return plainToInstance(ProductResponseDto, product, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  private async buildProductData<T extends CreateProductDto | UpdateProductDto>(
+    dto: T,
+    image?: Express.Multer.File
+  ): Promise<T & { imageUrl?: string; imagePublicId?: string }> {
+    if (!image) {
+      return dto;
+    }
+
+    const { url, publicId } = await this.uploadService.uploadImage(
+      image.buffer,
+      'products'
+    );
+    return { ...dto, imageUrl: url, imagePublicId: publicId };
   }
 }
