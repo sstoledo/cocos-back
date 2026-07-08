@@ -79,3 +79,22 @@ model Verification {
 
   @@index([identifier])
 }
+
+model Product {
+  id            String   @id @default(cuid()) @map("id")
+  code          String   @unique @map("code")
+  name          String   @map("name")
+  description   String?  @map("description")
+  price         Decimal  @db.Decimal(10, 2) @map("price")
+  minStock      Int      @default(0) @map("min_stock")
+  unit          String   @default("unit") @map("unit")
+  imageUrl      String?  @map("image_url")
+  imagePublicId String?  @map("image_public_id")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([code])
+  @@index([name])
+  @@map("products")
+}
