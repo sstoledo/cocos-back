@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaClientKnownRequestError } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { UploadService, UploadedImage } from '../upload';
 import { ProductResponseDto } from './dto/product-response.dto';
@@ -123,6 +123,7 @@ describe('ProductsService', () => {
         id: 'product-1',
         ...dto,
         price: '30',
+        taxRate: '21',
         ...baseRelations,
       };
       (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
@@ -147,6 +148,7 @@ describe('ProductsService', () => {
         id: 'product-1',
         ...dto,
         price: '30',
+        taxRate: '21',
         imageUrl: uploadedImage.url,
         imagePublicId: uploadedImage.publicId,
         ...baseRelations,
@@ -175,7 +177,7 @@ describe('ProductsService', () => {
     it('throws ConflictException when code already exists', async () => {
       const dto = { ...baseDto };
       (prisma.product.create as unknown as jest.Mock).mockRejectedValue(
-        new PrismaClientKnownRequestError('unique constraint', {
+        new Prisma.PrismaClientKnownRequestError('unique constraint', {
           code: 'P2002',
           clientVersion: '6.0.0',
         })

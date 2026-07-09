@@ -22,10 +22,19 @@ export class ProductResponseDto {
   minStock: number;
 
   @Expose()
+  presentationId: string;
+
+  @Expose()
   presentation: { id: string; name: string };
 
   @Expose()
+  brandId: string;
+
+  @Expose()
   brand: { id: string; name: string };
+
+  @Expose()
+  categoryId: string;
 
   @Expose()
   category: { id: string; name: string };

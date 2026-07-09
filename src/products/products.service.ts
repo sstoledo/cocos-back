@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Product } from '@prisma/client';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
@@ -22,12 +22,16 @@ export class ProductsService {
   async findAll() {
     const products = await this.prisma.product.findMany({
       orderBy: { name: 'asc' },
+      include: { presentation: true, brand: true, category: true },
     });
     return products.map((product) => this.toResponse(product));
   }
 
   async findOne(id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { presentation: true, brand: true, category: true },
+    });
     return product ? this.toResponse(product) : null;
   }
 
@@ -38,10 +42,7 @@ export class ProductsService {
       const created = await this.prisma.product.create({ data });
       return this.toResponse(created);
     } catch (error) {
-      if (
-        error instanceof PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException();
       }
       throw error;
@@ -68,10 +69,7 @@ export class ProductsService {
       }
       return this.toResponse(updated);
     } catch (error) {
-      if (
-        error instanceof PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException();
       }
       throw error;
