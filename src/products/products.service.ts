@@ -42,7 +42,10 @@ export class ProductsService {
       const created = await this.prisma.product.create({ data });
       return this.toResponse(created);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException();
       }
       throw error;
@@ -69,7 +72,10 @@ export class ProductsService {
       }
       return this.toResponse(updated);
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
         throw new ConflictException();
       }
       throw error;
