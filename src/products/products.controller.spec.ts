@@ -189,8 +189,13 @@ describe('ProductsController', () => {
         description: 'Synthetic engine oil',
         price: 30,
         minStock: 10,
-        unit: 'liter',
         isActive: true,
+        presentationId: 'pres-1',
+        brandId: 'brand-1',
+        categoryId: 'cat-1',
+        barcode: '123456789012',
+        taxRate: 21,
+        notes: 'Keep away from heat sources',
       };
       const image = { buffer: Buffer.from('image') } as Express.Multer.File;
       const created = { id: 'product-1', ...dto, price: '30' };
@@ -207,7 +212,11 @@ describe('ProductsController', () => {
 
   describe('update', () => {
     it('updates a product using the provided id, dto, and image', async () => {
-      const dto = { name: 'Engine oil premium' };
+      const dto = {
+        name: 'Engine oil premium',
+        brandId: 'brand-2',
+        taxRate: 10.5,
+      };
       const image = { buffer: Buffer.from('image') } as Express.Multer.File;
       const updated = { id: 'product-1', ...dto, price: '30' };
       (productsService.update as unknown as jest.Mock).mockResolvedValue(
