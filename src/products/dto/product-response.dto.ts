@@ -22,7 +22,23 @@ export class ProductResponseDto {
   minStock: number;
 
   @Expose()
-  unit?: string | null;
+  presentation: { id: string; name: string };
+
+  @Expose()
+  brand: { id: string; name: string };
+
+  @Expose()
+  category: { id: string; name: string };
+
+  @Expose()
+  barcode?: string | null;
+
+  @Expose()
+  @Transform(({ value }) => String(value))
+  taxRate: string;
+
+  @Expose()
+  notes?: string | null;
 
   @Expose()
   imageUrl?: string | null;

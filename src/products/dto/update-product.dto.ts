@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -45,8 +44,32 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @IsIn(['unit', 'liter', 'kg', 'piece'])
-  unit?: string;
+  presentationId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  brandId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  barcode?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Type(() => Number)
+  taxRate?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 
   @IsOptional()
   @IsBoolean()
