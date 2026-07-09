@@ -80,19 +80,51 @@ model Verification {
   @@index([identifier])
 }
 
+model Presentation {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  products Product[]
+
+  @@map("presentations")
+}
+
+model Brand {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  products Product[]
+
+  @@map("brands")
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String    @unique
+  products Product[]
+
+  @@map("categories")
+}
+
 model Product {
-  id            String   @id @default(cuid()) @map("id")
-  code          String   @unique @map("code")
-  name          String   @map("name")
-  description   String?  @map("description")
-  price         Decimal  @db.Decimal(10, 2) @map("price")
-  minStock      Int      @default(0) @map("min_stock")
-  unit          String   @default("unit") @map("unit")
-  imageUrl      String?  @map("image_url")
-  imagePublicId String?  @map("image_public_id")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             String       @id @default(cuid()) @map("id")
+  code           String       @unique @map("code")
+  name           String       @map("name")
+  description    String?      @map("description")
+  price          Decimal      @db.Decimal(10, 2) @map("price")
+  minStock       Int          @default(0) @map("min_stock")
+  barcode        String?      @unique @map("barcode")
+  taxRate        Decimal      @db.Decimal(5, 2) @default(0.00) @map("tax_rate")
+  notes          String?      @map("notes")
+  imageUrl       String?      @map("image_url")
+  imagePublicId  String?      @map("image_public_id")
+  isActive       Boolean      @default(true) @map("is_active")
+  presentationId String       @map("presentation_id")
+  presentation   Presentation @relation(fields: [presentationId], references: [id])
+  brandId        String       @map("brand_id")
+  brand          Brand        @relation(fields: [brandId], references: [id])
+  categoryId     String       @map("category_id")
+  category       Category     @relation(fields: [categoryId], references: [id])
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
   @@index([code])
   @@index([name])
