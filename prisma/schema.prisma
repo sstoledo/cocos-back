@@ -148,6 +148,25 @@ model Supplier {
   @@map("suppliers")
 }
 
+model Client {
+  id                 String    @id @default(cuid())
+  name               String
+  phone              String?
+  email              String?   @unique
+  address            String?
+  identification     String?   @unique
+  identificationType String? // DNI | RUC
+  isActive           Boolean   @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([name])
+  @@index([identification])
+  @@index([isActive])
+  @@map("clients")
+}
+
 model Lot {
   id         String    @id @default(cuid())
   lotNumber  String    @unique
