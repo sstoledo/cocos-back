@@ -33,6 +33,9 @@ const uploadedImage = {
   publicId: 'products/fake-123',
 };
 
+const cloudName = 'your_cloud_name';
+const derivedImageUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${uploadedImage.publicId}`;
+
 const imagePng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
@@ -42,6 +45,8 @@ const oversizedPng = Buffer.concat([
   imagePng,
   Buffer.alloc(2 * 1024 * 1024 + 1 - imagePng.length),
 ]);
+
+process.env.CLOUDINARY_CLOUD_NAME = cloudName;
 
 describe('Products (e2e)', () => {
   let app: INestApplication;
@@ -174,7 +179,7 @@ describe('Products (e2e)', () => {
       expect(response.body).toMatchObject({
         code: 'OIL-001',
         imagePublicId: uploadedImage.publicId,
-        imageUrl: uploadedImage.url,
+        imageUrl: derivedImageUrl,
         name: 'Engine oil',
         price: '30',
         unit: 'liter',
@@ -304,7 +309,7 @@ describe('Products (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         imagePublicId: uploadedImage.publicId,
-        imageUrl: uploadedImage.url,
+        imageUrl: derivedImageUrl,
         name: 'Engine oil premium',
       });
       expect(uploadService.uploadImage).toHaveBeenCalledTimes(2);
