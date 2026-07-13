@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { BrandsModule } from './brands/brands.module';
 import { CategoriesModule } from './categories/categories.module';
+import { ClientsModule } from './clients/clients.module';
 import { HealthModule } from './health/health.module';
 import { LotsModule } from './lots/lots.module';
 import { PresentationsModule } from './presentations/presentations.module';
@@ -25,6 +26,7 @@ import { UsersModule } from './users/users.module';
     PresentationsModule,
     BrandsModule,
     CategoriesModule,
+    ClientsModule,
     HealthModule,
     LotsModule,
     StockModule,
