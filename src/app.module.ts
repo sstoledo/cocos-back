@@ -8,6 +8,7 @@ import { LotsModule } from './lots/lots.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { StockModule } from './stock';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
 
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     CategoriesModule,
     HealthModule,
     LotsModule,
+    StockModule,
   ],
 })
 export class AppModule {}
