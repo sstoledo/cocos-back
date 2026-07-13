@@ -158,6 +158,7 @@ model Client {
   identificationType String? // DNI | RUC
   isActive           Boolean   @default(true)
   deletedAt          DateTime?
+  vehicles           Vehicle[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -165,6 +166,26 @@ model Client {
   @@index([identification])
   @@index([isActive])
   @@map("clients")
+}
+
+model Vehicle {
+  id        String    @id @default(cuid())
+  plate     String    @unique
+  brand     String
+  model     String
+  year      Int?
+  color     String?
+  notes     String?
+  clientId  String    @map("client_id")
+  client    Client    @relation(fields: [clientId], references: [id])
+  isActive  Boolean   @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([isActive])
+  @@map("vehicles")
 }
 
 model Lot {

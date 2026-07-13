@@ -152,6 +152,7 @@ describe('ClientsService', () => {
 
       expect(prisma.client.findUnique).toHaveBeenCalledWith({
         where: { id: 'client-1', isActive: true },
+        include: { vehicles: { where: { isActive: true } } },
       });
       expect(result).toEqual(client);
     });
@@ -167,6 +168,31 @@ describe('ClientsService', () => {
     });
   });
 
+  describe('exists', () => {
+    it('returns true when an active client exists', async () => {
+      (prisma.client.findUnique as unknown as jest.Mock).mockResolvedValue({
+        id: 'client-1',
+      });
+
+      const result = await service.exists('client-1');
+
+      expect(prisma.client.findUnique).toHaveBeenCalledWith({
+        where: { id: 'client-1', isActive: true },
+        select: { id: true },
+      });
+      expect(result).toBe(true);
+    });
+
+    it('returns false when the client is not active', async () => {
+      (prisma.client.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      const result = await service.exists('missing-id');
+
+      expect(result).toBe(false);
+    });
+  });
   describe('update', () => {
     it('updates an active client when it exists', async () => {
       const dto = { name: 'Juan Pérez Actualizado' };
@@ -180,6 +206,7 @@ describe('ClientsService', () => {
 
       expect(prisma.client.findUnique).toHaveBeenCalledWith({
         where: { id: 'client-1', isActive: true },
+        include: { vehicles: { where: { isActive: true } } },
       });
       expect(prisma.client.update).toHaveBeenCalledWith({
         where: { id: 'client-1' },
@@ -225,6 +252,7 @@ describe('ClientsService', () => {
 
       expect(prisma.client.findUnique).toHaveBeenCalledWith({
         where: { id: 'client-1', isActive: true },
+        include: { vehicles: { where: { isActive: true } } },
       });
       expect(prisma.client.update).toHaveBeenCalledWith({
         where: { id: 'client-1' },

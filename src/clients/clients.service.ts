@@ -51,11 +51,20 @@ export class ClientsService {
   async findOne(id: string) {
     const client = await this.prisma.client.findUnique({
       where: { id, isActive: true },
+      include: { vehicles: { where: { isActive: true } } },
     });
     if (!client) {
       throw new NotFoundException();
     }
     return client;
+  }
+
+  async exists(id: string): Promise<boolean> {
+    const client = await this.prisma.client.findUnique({
+      where: { id, isActive: true },
+      select: { id: true },
+    });
+    return client !== null;
   }
 
   async update(id: string, dto: UpdateClientDto) {
