@@ -1,6 +1,19 @@
 import { Exclude, Expose, Transform, Type } from 'class-transformer';
 
 @Exclude()
+export class CategoryResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  name: string;
+
+  @Expose()
+  @Type(() => CategoryResponseDto)
+  parent?: CategoryResponseDto | null;
+}
+
+@Exclude()
 export class ProductResponseDto {
   @Expose()
   id: string;
@@ -19,10 +32,33 @@ export class ProductResponseDto {
   price: string;
 
   @Expose()
-  minStock: number;
+  presentationId: string;
 
   @Expose()
-  unit?: string | null;
+  presentation: { id: string; name: string };
+
+  @Expose()
+  brandId: string;
+
+  @Expose()
+  brand: { id: string; name: string };
+
+  @Expose()
+  categoryId: string;
+
+  @Expose()
+  @Type(() => CategoryResponseDto)
+  category: CategoryResponseDto;
+
+  @Expose()
+  barcode?: string | null;
+
+  @Expose()
+  @Transform(({ value }) => String(value))
+  taxRate: string;
+
+  @Expose()
+  notes?: string | null;
 
   @Expose()
   imageUrl?: string | null;

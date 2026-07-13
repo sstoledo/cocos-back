@@ -3,8 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Product } from '@prisma/client';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
@@ -14,20 +15,38 @@ import type { UpdateProductDto } from './dto/update-product.dto';
 
 @Injectable()
 export class ProductsService {
+  private readonly cloudName: string;
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly uploadService: UploadService
-  ) {}
+    private readonly uploadService: UploadService,
+    private readonly configService: ConfigService
+  ) {
+    this.cloudName =
+      this.configService.get<string>('CLOUDINARY_CLOUD_NAME') ?? '';
+  }
 
   async findAll() {
     const products = await this.prisma.product.findMany({
       orderBy: { name: 'asc' },
+      include: {
+        presentation: true,
+        brand: true,
+        category: { include: { parent: true } },
+      },
     });
     return products.map((product) => this.toResponse(product));
   }
 
   async findOne(id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: {
+        presentation: true,
+        brand: true,
+        category: { include: { parent: true } },
+      },
+    });
     return product ? this.toResponse(product) : null;
   }
 
@@ -39,7 +58,7 @@ export class ProductsService {
       return this.toResponse(created);
     } catch (error) {
       if (
-        error instanceof PrismaClientKnownRequestError &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         throw new ConflictException();
@@ -69,7 +88,7 @@ export class ProductsService {
       return this.toResponse(updated);
     } catch (error) {
       if (
-        error instanceof PrismaClientKnownRequestError &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         throw new ConflictException();
@@ -101,7 +120,7 @@ export class ProductsService {
 
     const updated = await this.prisma.product.update({
       where: { id },
-      data: { imageUrl: null, imagePublicId: null },
+      data: { imagePublicId: null },
     });
     if (product.imagePublicId) {
       this.uploadService.deleteImage(product.imagePublicId).catch((error) => {
@@ -112,23 +131,27 @@ export class ProductsService {
   }
 
   private toResponse(product: Product): ProductResponseDto {
-    return plainToInstance(ProductResponseDto, product, {
+    const response = plainToInstance(ProductResponseDto, product, {
       excludeExtraneousValues: true,
     });
+    response.imageUrl = product.imagePublicId
+      ? `https://res.cloudinary.com/${this.cloudName}/image/upload/${product.imagePublicId}`
+      : null;
+    return response;
   }
 
   private async buildProductData<T extends CreateProductDto | UpdateProductDto>(
     dto: T,
     image?: Express.Multer.File
-  ): Promise<T & { imageUrl?: string; imagePublicId?: string }> {
+  ): Promise<T & { imagePublicId?: string }> {
     if (!image) {
       return dto;
     }
 
-    const { url, publicId } = await this.uploadService.uploadImage(
+    const { publicId } = await this.uploadService.uploadImage(
       image.buffer,
       'products'
     );
-    return { ...dto, imageUrl: url, imagePublicId: publicId };
+    return { ...dto, imagePublicId: publicId };
   }
 }

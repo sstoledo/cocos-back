@@ -1,6 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import { plainToInstance } from 'class-transformer';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { UploadService, UploadedImage } from '../upload';
 import { ProductResponseDto } from './dto/product-response.dto';
@@ -11,10 +11,41 @@ const uploadedImage: UploadedImage = {
   publicId: 'products/abc',
 };
 
+const baseDto = {
+  code: 'OIL-001',
+  name: 'Engine oil',
+  description: 'Synthetic engine oil',
+  price: 30,
+  isActive: true,
+  presentationId: 'pres-1',
+  brandId: 'brand-1',
+  categoryId: 'cat-1',
+  barcode: '123456789012',
+  taxRate: 21,
+  notes: 'Keep away from heat sources',
+};
+
+const baseRelations = {
+  presentation: { id: 'pres-1', name: 'Galón' },
+  brand: { id: 'brand-1', name: 'Mobil' },
+  category: { id: 'cat-1', name: 'Lubricantes', parent: null },
+};
+
+const productInclude = {
+  include: {
+    presentation: true,
+    brand: true,
+    category: { include: { parent: true } },
+  },
+};
+
+const cloudName = 'demo';
+
 describe('ProductsService', () => {
   let service: ProductsService;
   let prisma: PrismaService;
   let uploadService: UploadService;
+  let configService: ConfigService;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -31,14 +62,27 @@ describe('ProductsService', () => {
       uploadImage: jest.fn().mockResolvedValue(uploadedImage),
       deleteImage: jest.fn().mockResolvedValue(undefined),
     } as unknown as UploadService;
-    service = new ProductsService(prisma, uploadService);
+    configService = {
+      get: jest.fn().mockReturnValue(cloudName),
+    } as unknown as ConfigService;
+    service = new ProductsService(prisma, uploadService, configService);
   });
 
   describe('findAll', () => {
-    it('returns all products ordered by name ascending with price as a string', async () => {
+    it('returns all products ordered by name with relations included', async () => {
       const products = [
-        { id: 'product-2', name: 'Brake pads', price: '50' },
-        { id: 'product-1', name: 'Engine oil', price: '30' },
+        {
+          id: 'product-2',
+          name: 'Brake pads',
+          price: '50',
+          ...baseRelations,
+        },
+        {
+          id: 'product-1',
+          name: 'Engine oil',
+          price: '30',
+          ...baseRelations,
+        },
       ];
       (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
         products
@@ -48,14 +92,21 @@ describe('ProductsService', () => {
 
       expect(prisma.product.findMany).toHaveBeenCalledWith({
         orderBy: { name: 'asc' },
+        ...productInclude,
       });
       expect(result).toMatchObject(products);
+      expect(result[0]).toBeInstanceOf(ProductResponseDto);
     });
   });
 
   describe('findOne', () => {
-    it('returns a product by id with price as a string', async () => {
-      const product = { id: 'product-1', name: 'Engine oil', price: '30' };
+    it('returns a product by id with relations included', async () => {
+      const product = {
+        id: 'product-1',
+        name: 'Engine oil',
+        price: '30',
+        ...baseRelations,
+      };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         product
       );
@@ -64,23 +115,23 @@ describe('ProductsService', () => {
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
         where: { id: 'product-1' },
+        ...productInclude,
       });
       expect(result).toMatchObject(product);
+      expect(result).toBeInstanceOf(ProductResponseDto);
     });
   });
 
   describe('create', () => {
-    it('creates a product without image and returns price as a string', async () => {
-      const dto = {
-        code: 'OIL-001',
-        name: 'Engine oil',
-        description: 'Synthetic engine oil',
-        price: 30,
-        minStock: 10,
-        unit: 'liter',
-        isActive: true,
+    it('creates a product without image and returns the new catalog fields', async () => {
+      const dto = { ...baseDto };
+      const created = {
+        id: 'product-1',
+        ...dto,
+        price: '30',
+        taxRate: '21',
+        ...baseRelations,
       };
-      const created = { id: 'product-1', ...dto, price: '30' };
       (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
         created
       );
@@ -93,12 +144,8 @@ describe('ProductsService', () => {
       expect(result).toBeInstanceOf(ProductResponseDto);
     });
 
-    it('uploads image and persists image fields when image is provided', async () => {
-      const dto = {
-        code: 'OIL-001',
-        name: 'Engine oil',
-        price: 30,
-      };
+    it('uploads image and persists image public id when image is provided', async () => {
+      const dto = { ...baseDto };
       const image = { buffer: Buffer.from('image') } as Express.Multer.File;
       (uploadService.uploadImage as unknown as jest.Mock).mockResolvedValue(
         uploadedImage
@@ -107,8 +154,9 @@ describe('ProductsService', () => {
         id: 'product-1',
         ...dto,
         price: '30',
-        imageUrl: uploadedImage.url,
+        taxRate: '21',
         imagePublicId: uploadedImage.publicId,
+        ...baseRelations,
       };
       (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
         created
@@ -123,22 +171,20 @@ describe('ProductsService', () => {
       expect(prisma.product.create).toHaveBeenCalledWith({
         data: {
           ...dto,
-          imageUrl: uploadedImage.url,
           imagePublicId: uploadedImage.publicId,
         },
       });
-      expect(result).toMatchObject(created);
+      expect(result).toMatchObject({
+        ...created,
+        imageUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${uploadedImage.publicId}`,
+      });
       expect(result).toBeInstanceOf(ProductResponseDto);
     });
 
     it('throws ConflictException when code already exists', async () => {
-      const dto = {
-        code: 'OIL-001',
-        name: 'Engine oil',
-        price: 30,
-      };
+      const dto = { ...baseDto };
       (prisma.product.create as unknown as jest.Mock).mockRejectedValue(
-        new PrismaClientKnownRequestError('unique constraint', {
+        new Prisma.PrismaClientKnownRequestError('unique constraint', {
           code: 'P2002',
           clientVersion: '6.0.0',
         })
@@ -150,7 +196,7 @@ describe('ProductsService', () => {
     });
 
     it('propagates upload errors', async () => {
-      const dto = { code: 'OIL-001', name: 'Engine oil', price: 30 };
+      const dto = { ...baseDto };
       const image = { buffer: Buffer.from('image') } as Express.Multer.File;
       (uploadService.uploadImage as unknown as jest.Mock).mockRejectedValue(
         new Error('upload failed')
@@ -165,8 +211,13 @@ describe('ProductsService', () => {
 
   describe('update', () => {
     it('updates fields without image', async () => {
-      const existing = { id: 'product-1', name: 'Engine oil', price: '30' };
-      const dto = { name: 'Engine oil premium' };
+      const existing = {
+        id: 'product-1',
+        name: 'Engine oil',
+        price: '30',
+        ...baseRelations,
+      };
+      const dto = { name: 'Engine oil premium', brandId: 'brand-2' };
       const updated = { ...existing, ...dto };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         existing
@@ -193,8 +244,8 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       const image = { buffer: Buffer.from('new-image') } as Express.Multer.File;
       (uploadService.uploadImage as unknown as jest.Mock).mockResolvedValue(
@@ -202,7 +253,6 @@ describe('ProductsService', () => {
       );
       const updated = {
         ...existing,
-        imageUrl: uploadedImage.url,
         imagePublicId: uploadedImage.publicId,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
@@ -221,12 +271,14 @@ describe('ProductsService', () => {
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
         data: {
-          imageUrl: uploadedImage.url,
           imagePublicId: uploadedImage.publicId,
         },
       });
       expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
-      expect(result).toMatchObject(updated);
+      expect(result).toMatchObject({
+        ...updated,
+        imageUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${uploadedImage.publicId}`,
+      });
       expect(result).toBeInstanceOf(ProductResponseDto);
     });
 
@@ -246,8 +298,8 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       const image = { buffer: Buffer.from('new-image') } as Express.Multer.File;
       (uploadService.uploadImage as unknown as jest.Mock).mockResolvedValue(
@@ -258,7 +310,6 @@ describe('ProductsService', () => {
       );
       const updated = {
         ...existing,
-        imageUrl: uploadedImage.url,
         imagePublicId: uploadedImage.publicId,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
@@ -273,7 +324,10 @@ describe('ProductsService', () => {
 
       const result = await service.update('product-1', {} as never, image);
 
-      expect(result).toMatchObject(updated);
+      expect(result).toMatchObject({
+        ...updated,
+        imageUrl: `https://res.cloudinary.com/${cloudName}/image/upload/${uploadedImage.publicId}`,
+      });
       expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
       expect(loggerSpy).toHaveBeenCalled();
       loggerSpy.mockRestore();
@@ -286,8 +340,8 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         existing
@@ -325,8 +379,8 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         existing
@@ -356,12 +410,11 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       const updated = {
         ...existing,
-        imageUrl: null,
         imagePublicId: null,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
@@ -378,7 +431,7 @@ describe('ProductsService', () => {
       });
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
-        data: { imageUrl: null, imagePublicId: null },
+        data: { imagePublicId: null },
       });
       expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
       expect(result).toMatchObject(updated);
@@ -401,12 +454,11 @@ describe('ProductsService', () => {
         id: 'product-1',
         name: 'Engine oil',
         price: '30',
-        imageUrl: 'https://old.url',
         imagePublicId: 'products/old',
+        ...baseRelations,
       };
       const updated = {
         ...existing,
-        imageUrl: null,
         imagePublicId: null,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(

@@ -2,8 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { TestingModule } from '@nestjs/testing';
-import { RoleName } from '@prisma/client';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { Prisma, RoleName } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { auth } from './../src/auth/auth';
@@ -33,6 +32,15 @@ const uploadedImage = {
   publicId: 'products/fake-123',
 };
 
+const cloudName = 'your_cloud_name';
+const derivedImageUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${uploadedImage.publicId}`;
+
+const catalogIds = {
+  presentationId: 'presentation-1',
+  brandId: 'brand-1',
+  categoryId: 'category-1',
+};
+
 const imagePng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
@@ -49,6 +57,7 @@ describe('Products (e2e)', () => {
   let uploadService: UploadService;
 
   beforeEach(async () => {
+    process.env.CLOUDINARY_CLOUD_NAME = cloudName;
     jest.clearAllMocks();
 
     const products: Array<Record<string, unknown>> = [];
@@ -64,16 +73,22 @@ describe('Products (e2e)', () => {
       product: {
         create: jest.fn(({ data }) => {
           if (products.some((product) => product.code === data.code)) {
-            throw new PrismaClientKnownRequestError('unique constraint', {
-              clientVersion: '6.0.0',
-              code: 'P2002',
-            });
+            throw new Prisma.PrismaClientKnownRequestError(
+              'unique constraint',
+              {
+                clientVersion: '6.0.0',
+                code: 'P2002',
+              }
+            );
           }
           const product = {
             ...data,
-            createdAt: new Date().toISOString(),
             id: `product-${products.length + 1}`,
+            createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
+            presentation: { id: data.presentationId, name: 'Presentation' },
+            brand: { id: data.brandId, name: 'Brand' },
+            category: { id: data.categoryId, name: 'Category', parent: null },
           };
           products.push(product);
           return product;
@@ -82,27 +97,76 @@ describe('Products (e2e)', () => {
           const index = products.findIndex(
             (product) => product.id === where.id
           );
-          const product = products[index];
+          const existing = products[index];
+          const product = {
+            ...existing,
+            presentation: existing.presentation || {
+              id: existing.presentationId,
+              name: 'Presentation',
+            },
+            brand: existing.brand || {
+              id: existing.brandId,
+              name: 'Brand',
+            },
+            category: existing.category || {
+              id: existing.categoryId,
+              name: 'Category',
+              parent: null,
+            },
+          };
           products.splice(index, 1);
           return product;
         }),
         findMany: jest.fn().mockResolvedValue(products),
         findUnique: jest.fn(({ where }) => {
+          let found = null;
           if (where.id) {
-            return products.find((product) => product.id === where.id) ?? null;
+            found = products.find((product) => product.id === where.id) ?? null;
           }
           if (where.code) {
-            return (
-              products.find((product) => product.code === where.code) ?? null
-            );
+            found =
+              products.find((product) => product.code === where.code) ?? null;
           }
-          return null;
+          if (!found) return null;
+          return {
+            ...found,
+            presentation: found.presentation || {
+              id: found.presentationId,
+              name: 'Presentation',
+            },
+            brand: found.brand || {
+              id: found.brandId,
+              name: 'Brand',
+            },
+            category: found.category || {
+              id: found.categoryId,
+              name: 'Category',
+              parent: null,
+            },
+          };
         }),
         update: jest.fn(({ data, where }) => {
           const index = products.findIndex(
             (product) => product.id === where.id
           );
-          const updated = { ...products[index], ...data };
+          const existing = products[index];
+          const updated = {
+            ...existing,
+            ...data,
+            presentation: {
+              id: data.presentationId || existing.presentationId,
+              name: 'Presentation',
+            },
+            brand: {
+              id: data.brandId || existing.brandId,
+              name: 'Brand',
+            },
+            category: {
+              id: data.categoryId || existing.categoryId,
+              name: 'Category',
+              parent: null,
+            },
+          };
           products[index] = updated;
           return updated;
         }),
@@ -167,19 +231,18 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
-        .field('unit', 'liter')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       expect(response.status).toBe(201);
       expect(response.body).toMatchObject({
         code: 'OIL-001',
         imagePublicId: uploadedImage.publicId,
-        imageUrl: uploadedImage.url,
-        minStock: 10,
+        imageUrl: derivedImageUrl,
         name: 'Engine oil',
         price: '30',
-        unit: 'liter',
       });
       expect(typeof response.body.price).toBe('string');
       expect(uploadService.uploadImage).toHaveBeenCalledWith(
@@ -195,7 +258,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       expect(response.status).toBe(403);
@@ -209,7 +274,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', oversizedPng, 'image.png');
 
       expect(response.status).toBe(400);
@@ -222,7 +289,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', Buffer.from('not an image'), 'file.txt');
 
       expect(response.status).toBe(400);
@@ -235,14 +304,18 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10');
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
 
       const response = await admin()
         .post('/api/products')
         .field('code', 'OIL-001')
         .field('name', 'Engine oil duplicate')
         .field('price', '25')
-        .field('minStock', '5');
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
 
       expect(response.status).toBe(409);
     });
@@ -261,13 +334,17 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10');
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
       await admin()
         .post('/api/products')
         .field('code', 'BRAKE-001')
         .field('name', 'Brake pads')
         .field('price', '50')
-        .field('minStock', '20');
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
 
       const response = await admin().get('/api/products?q=oil&isActive=true');
 
@@ -284,7 +361,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10');
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
 
       const response = await admin().get('/api/products/product-1');
 
@@ -304,18 +383,23 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       const response = await admin()
         .patch('/api/products/product-1')
         .field('name', 'Engine oil premium')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         imagePublicId: uploadedImage.publicId,
-        imageUrl: uploadedImage.url,
+        imageUrl: derivedImageUrl,
         name: 'Engine oil premium',
       });
       expect(uploadService.uploadImage).toHaveBeenCalledTimes(2);
@@ -332,7 +416,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       const response = await admin().delete('/api/products/product-1/image');
@@ -355,7 +441,9 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId)
         .attach('image', imagePng, 'image.png');
 
       const response = await admin().delete('/api/products/product-1');
