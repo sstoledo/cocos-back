@@ -145,6 +145,60 @@ describe('VehiclesController', () => {
       expect(vehiclesService.create).toHaveBeenCalledWith(dto);
       expect(result).toEqual(created);
     });
+
+    it('accepts current-format plates', async () => {
+      const dto = {
+        plate: 'A1B234',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      (vehiclesService.create as unknown as jest.Mock).mockResolvedValue({
+        id: 'vehicle-1',
+        ...dto,
+      });
+
+      const result = await controller.create(dto as never);
+
+      expect(vehiclesService.create).toHaveBeenCalledWith(dto);
+      expect(result).toEqual({ id: 'vehicle-1', ...dto });
+    });
+
+    it('accepts motorcycle-format plates', async () => {
+      const dto = {
+        plate: 'AB1234',
+        brand: 'Honda',
+        model: 'Wave',
+        clientId: 'client-1',
+      };
+      (vehiclesService.create as unknown as jest.Mock).mockResolvedValue({
+        id: 'vehicle-1',
+        ...dto,
+      });
+
+      const result = await controller.create(dto as never);
+
+      expect(vehiclesService.create).toHaveBeenCalledWith(dto);
+      expect(result).toEqual({ id: 'vehicle-1', ...dto });
+    });
+
+    it('accepts special-format plates', async () => {
+      const dto = {
+        plate: 'EUA123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      (vehiclesService.create as unknown as jest.Mock).mockResolvedValue({
+        id: 'vehicle-1',
+        ...dto,
+      });
+
+      const result = await controller.create(dto as never);
+
+      expect(vehiclesService.create).toHaveBeenCalledWith(dto);
+      expect(result).toEqual({ id: 'vehicle-1', ...dto });
+    });
   });
 
   describe('update', () => {
