@@ -29,7 +29,11 @@ export class ProductsService {
   async findAll() {
     const products = await this.prisma.product.findMany({
       orderBy: { name: 'asc' },
-      include: { presentation: true, brand: true, category: true },
+      include: {
+        presentation: true,
+        brand: true,
+        category: { include: { parent: true } },
+      },
     });
     return products.map((product) => this.toResponse(product));
   }
@@ -37,7 +41,11 @@ export class ProductsService {
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { presentation: true, brand: true, category: true },
+      include: {
+        presentation: true,
+        brand: true,
+        category: { include: { parent: true } },
+      },
     });
     return product ? this.toResponse(product) : null;
   }

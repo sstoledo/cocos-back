@@ -28,14 +28,14 @@ const baseDto = {
 const baseRelations = {
   presentation: { id: 'pres-1', name: 'Galón' },
   brand: { id: 'brand-1', name: 'Mobil' },
-  category: { id: 'cat-1', name: 'Lubricantes' },
+  category: { id: 'cat-1', name: 'Lubricantes', parent: null },
 };
 
 const productInclude = {
   include: {
     presentation: true,
     brand: true,
-    category: true,
+    category: { include: { parent: true } },
   },
 };
 
