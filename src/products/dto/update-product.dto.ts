@@ -1,7 +1,6 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -34,12 +33,6 @@ export class UpdateProductDto {
   @IsPositive()
   @Type(() => Number)
   price?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Type(() => Number)
-  minStock?: number;
 
   @IsOptional()
   @IsString()

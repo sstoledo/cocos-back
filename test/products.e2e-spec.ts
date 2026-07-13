@@ -167,7 +167,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .field('unit', 'liter')
         .attach('image', imagePng, 'image.png');
 
@@ -176,7 +175,6 @@ describe('Products (e2e)', () => {
         code: 'OIL-001',
         imagePublicId: uploadedImage.publicId,
         imageUrl: uploadedImage.url,
-        minStock: 10,
         name: 'Engine oil',
         price: '30',
         unit: 'liter',
@@ -195,7 +193,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', imagePng, 'image.png');
 
       expect(response.status).toBe(403);
@@ -209,7 +206,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', oversizedPng, 'image.png');
 
       expect(response.status).toBe(400);
@@ -222,7 +218,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', Buffer.from('not an image'), 'file.txt');
 
       expect(response.status).toBe(400);
@@ -234,15 +229,13 @@ describe('Products (e2e)', () => {
         .post('/api/products')
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
-        .field('price', '30')
-        .field('minStock', '10');
+        .field('price', '30');
 
       const response = await admin()
         .post('/api/products')
         .field('code', 'OIL-001')
         .field('name', 'Engine oil duplicate')
-        .field('price', '25')
-        .field('minStock', '5');
+        .field('price', '25');
 
       expect(response.status).toBe(409);
     });
@@ -260,14 +253,12 @@ describe('Products (e2e)', () => {
         .post('/api/products')
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
-        .field('price', '30')
-        .field('minStock', '10');
+        .field('price', '30');
       await admin()
         .post('/api/products')
         .field('code', 'BRAKE-001')
         .field('name', 'Brake pads')
-        .field('price', '50')
-        .field('minStock', '20');
+        .field('price', '50');
 
       const response = await admin().get('/api/products?q=oil&isActive=true');
 
@@ -283,8 +274,7 @@ describe('Products (e2e)', () => {
         .post('/api/products')
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
-        .field('price', '30')
-        .field('minStock', '10');
+        .field('price', '30');
 
       const response = await admin().get('/api/products/product-1');
 
@@ -304,7 +294,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', imagePng, 'image.png');
 
       const response = await admin()
@@ -332,7 +321,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', imagePng, 'image.png');
 
       const response = await admin().delete('/api/products/product-1/image');
@@ -355,7 +343,6 @@ describe('Products (e2e)', () => {
         .field('code', 'OIL-001')
         .field('name', 'Engine oil')
         .field('price', '30')
-        .field('minStock', '10')
         .attach('image', imagePng, 'image.png');
 
       const response = await admin().delete('/api/products/product-1');

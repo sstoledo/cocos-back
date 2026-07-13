@@ -97,8 +97,11 @@ model Brand {
 }
 
 model Category {
-  id       String    @id @default(cuid())
-  name     String    @unique
+  id       String     @id @default(cuid())
+  name     String     @unique
+  parentId String?    @map("parent_id")
+  parent   Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryChildren")
   products Product[]
 
   @@map("categories")
@@ -110,11 +113,9 @@ model Product {
   name           String       @map("name")
   description    String?      @map("description")
   price          Decimal      @db.Decimal(10, 2) @map("price")
-  minStock       Int          @default(0) @map("min_stock")
   barcode        String?      @unique @map("barcode")
   taxRate        Decimal      @db.Decimal(5, 2) @default(0.00) @map("tax_rate")
   notes          String?      @map("notes")
-  imageUrl       String?      @map("image_url")
   imagePublicId  String?      @map("image_public_id")
   isActive       Boolean      @default(true) @map("is_active")
   presentationId String       @map("presentation_id")

@@ -18,8 +18,6 @@ export class ProductResponseDto {
   @Transform(({ value }) => String(value))
   price: string;
 
-  @Expose()
-  minStock: number;
 
   @Expose()
   presentationId: string;

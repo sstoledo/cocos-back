@@ -15,7 +15,6 @@ const baseDto = {
   name: 'Engine oil',
   description: 'Synthetic engine oil',
   price: 30,
-  minStock: 10,
   isActive: true,
   presentationId: 'pres-1',
   brandId: 'brand-1',
