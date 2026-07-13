@@ -1,4 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { ClientsService } from '../clients/clients.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { VehiclesService } from './vehicles.service';
@@ -24,6 +25,13 @@ describe('VehiclesService', () => {
     } as unknown as ClientsService;
     service = new VehiclesService(prisma, clientsService);
   });
+
+  const createPrismaError = (code: string) => {
+    return new Prisma.PrismaClientKnownRequestError('constraint', {
+      code,
+      clientVersion: '6.0.0',
+    });
+  };
 
   const client = {
     id: 'client-1',
@@ -70,6 +78,49 @@ describe('VehiclesService', () => {
         data: { ...dto, plate: 'ABC123' },
       });
       expect(result).toEqual(vehicle);
+    });
+
+    it('throws NotFoundException when the client does not exist', async () => {
+      const dto = {
+        plate: 'ABC123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'missing-client',
+      };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(false);
+
+      await expect(service.create(dto)).rejects.toThrow(NotFoundException);
+      expect(prisma.vehicle.create).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the normalized plate already exists', async () => {
+      const dto = {
+        plate: 'abc 123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(true);
+      (prisma.vehicle.create as unknown as jest.Mock).mockRejectedValue(
+        createPrismaError('P2002')
+      );
+
+      await expect(service.create(dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('rethrows unexpected errors', async () => {
+      const dto = {
+        plate: 'ABC123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(true);
+      (prisma.vehicle.create as unknown as jest.Mock).mockRejectedValue(
+        new Error('database failure')
+      );
+
+      await expect(service.create(dto)).rejects.toThrow('database failure');
     });
   });
 
@@ -173,6 +224,63 @@ describe('VehiclesService', () => {
         data: dto,
       });
       expect(result).toEqual(updated);
+    });
+
+    it('normalizes the plate when updating', async () => {
+      const dto = { plate: 'abc 123' };
+      const updated = { ...vehicle, plate: 'ABC123' };
+      (prisma.vehicle.findUnique as unknown as jest.Mock).mockResolvedValue(
+        vehicle
+      );
+      (prisma.vehicle.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
+
+      const result = await service.update('vehicle-1', dto);
+
+      expect(prisma.vehicle.update).toHaveBeenCalledWith({
+        where: { id: 'vehicle-1' },
+        data: { plate: 'ABC123' },
+      });
+      expect(result).toEqual(updated);
+    });
+
+    it('validates the client when updating clientId', async () => {
+      const dto = { clientId: 'client-2' };
+      (prisma.vehicle.findUnique as unknown as jest.Mock).mockResolvedValue(
+        vehicle
+      );
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(false);
+
+      await expect(service.update('vehicle-1', dto)).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.vehicle.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the vehicle does not exist', async () => {
+      (prisma.vehicle.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(
+        service.update('missing-id', { brand: 'X' })
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.vehicle.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the new plate already exists', async () => {
+      const dto = { plate: 'XYZ999' };
+      (prisma.vehicle.findUnique as unknown as jest.Mock).mockResolvedValue(
+        vehicle
+      );
+      (prisma.vehicle.update as unknown as jest.Mock).mockRejectedValue(
+        createPrismaError('P2002')
+      );
+
+      await expect(service.update('vehicle-1', dto)).rejects.toThrow(
+        ConflictException
+      );
     });
   });
 
