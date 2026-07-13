@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -18,6 +19,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     ProductsModule,
+    SuppliersModule,
     PresentationsModule,
     BrandsModule,
     CategoriesModule,
