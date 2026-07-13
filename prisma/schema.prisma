@@ -23,48 +23,48 @@ model Role {
 }
 
 model User {
-  id             String    @id
-  name           String
-  email          String    @unique
-  emailVerified  Boolean   @default(false)
-  image          String?
-  roleId         String
-  role           Role      @relation(fields: [roleId], references: [id])
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  sessions       Session[]
-  accounts       Account[]
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  roleId        String
+  role          Role      @relation(fields: [roleId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
 }
 
 model Session {
-  id           String   @id
-  expiresAt    DateTime
-  token        String   @unique
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  ipAddress    String?
-  userAgent    String?
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model Account {
-  id                   String    @id
-  accountId            String
-  providerId           String
-  userId               String
-  accessToken          String?
-  refreshToken         String?
-  idToken              String?
-  accessTokenExpiresAt DateTime?
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
   refreshTokenExpiresAt DateTime?
-  scope                String?
-  password             String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -104,30 +104,103 @@ model Category {
   children Category[] @relation("CategoryChildren")
   products Product[]
 
+  @@index([parentId])
   @@map("categories")
 }
 
 model Product {
-  id             String       @id @default(cuid()) @map("id")
-  code           String       @unique @map("code")
-  name           String       @map("name")
-  description    String?      @map("description")
-  price          Decimal      @db.Decimal(10, 2) @map("price")
-  barcode        String?      @unique @map("barcode")
-  taxRate        Decimal      @db.Decimal(5, 2) @default(0.00) @map("tax_rate")
-  notes          String?      @map("notes")
-  imagePublicId  String?      @map("image_public_id")
-  isActive       Boolean      @default(true) @map("is_active")
-  presentationId String       @map("presentation_id")
-  presentation   Presentation @relation(fields: [presentationId], references: [id])
-  brandId        String       @map("brand_id")
-  brand          Brand        @relation(fields: [brandId], references: [id])
-  categoryId     String       @map("category_id")
-  category       Category     @relation(fields: [categoryId], references: [id])
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  id             String          @id @default(cuid()) @map("id")
+  code           String          @unique @map("code")
+  name           String          @map("name")
+  description    String?         @map("description")
+  price          Decimal         @map("price") @db.Decimal(10, 2)
+  barcode        String?         @unique @map("barcode")
+  taxRate        Decimal         @default(0.00) @map("tax_rate") @db.Decimal(5, 2)
+  notes          String?         @map("notes")
+  imagePublicId  String?         @map("image_public_id")
+  isActive       Boolean         @default(true) @map("is_active")
+  presentationId String          @map("presentation_id")
+  presentation   Presentation    @relation(fields: [presentationId], references: [id])
+  brandId        String          @map("brand_id")
+  brand          Brand           @relation(fields: [brandId], references: [id])
+  categoryId     String          @map("category_id")
+  category       Category        @relation(fields: [categoryId], references: [id])
+  lotItems       LotItem[]
+  stockMovements StockMovement[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   @@index([code])
   @@index([name])
   @@map("products")
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  phone     String?
+  email     String?
+  address   String?
+  lots      Lot[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+model Lot {
+  id         String    @id @default(cuid())
+  lotNumber  String    @unique
+  supplierId String
+  supplier   Supplier  @relation(fields: [supplierId], references: [id])
+  receivedAt DateTime  @default(now())
+  notes      String?
+  items      LotItem[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([supplierId])
+  @@map("lots")
+}
+
+model LotItem {
+  id                String          @id @default(cuid())
+  lotId             String
+  lot               Lot             @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id])
+  quantity          Int
+  remainingQuantity Int
+  costPrice         Decimal         @db.Decimal(10, 2)
+  expirationDate    DateTime
+  stockMovements    StockMovement[]
+
+  @@index([lotId])
+  @@index([productId])
+  @@map("lot_items")
+}
+
+model StockMovement {
+  id        String            @id @default(cuid())
+  productId String
+  product   Product           @relation(fields: [productId], references: [id])
+  lotItemId String?
+  lotItem   LotItem?          @relation(fields: [lotItemId], references: [id])
+  type      StockMovementType
+  quantity  Int
+  reason    String?
+  createdAt DateTime          @default(now())
+
+  @@index([productId])
+  @@index([lotItemId])
+  @@map("stock_movements")
+}
+
+enum StockMovementType {
+  entry
+  exit
+  adjustment
+  service_usage
+
+  @@map("stock_movement_types")
 }
