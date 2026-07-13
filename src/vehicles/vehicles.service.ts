@@ -10,10 +10,7 @@ import type { CreateVehicleDto } from './dto/create-vehicle.dto';
 import type { ListVehiclesQueryDto } from './dto/list-vehicles-query.dto';
 import type { UpdateVehicleDto } from './dto/update-vehicle.dto';
 
-function normalizePlate(plate: string): string {
-  return plate.toUpperCase().trim().replace(/[-\s]/g, '');
-}
-
+import { normalizePlate } from '../common/helpers/plate.helper';
 @Injectable()
 export class VehiclesService {
   constructor(

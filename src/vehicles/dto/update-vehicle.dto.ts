@@ -5,15 +5,15 @@ import {
   IsString,
   MaxLength,
   Min,
-  MinLength,
+  Validate,
 } from 'class-validator';
+import { IsValidPlate } from '../validators/plate.validator';
 
 export class UpdateVehicleDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MinLength(6)
-  @MaxLength(8)
+  @Validate(IsValidPlate)
   plate?: string;
 
   @IsOptional()

@@ -93,6 +93,69 @@ describe('VehiclesService', () => {
       expect(prisma.vehicle.create).not.toHaveBeenCalled();
     });
 
+    it('normalizes current-format plates when creating', async () => {
+      const dto = {
+        plate: 'a1b-234',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      const created = { ...vehicle, plate: 'A1B234' };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(true);
+      (prisma.vehicle.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+
+      const result = await service.create(dto);
+
+      expect(prisma.vehicle.create).toHaveBeenCalledWith({
+        data: { ...dto, plate: 'A1B234' },
+      });
+      expect(result).toEqual(created);
+    });
+
+    it('normalizes motorcycle-format plates when creating', async () => {
+      const dto = {
+        plate: 'ab 1234',
+        brand: 'Honda',
+        model: 'Wave',
+        clientId: 'client-1',
+      };
+      const created = { ...vehicle, plate: 'AB1234' };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(true);
+      (prisma.vehicle.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+
+      const result = await service.create(dto);
+
+      expect(prisma.vehicle.create).toHaveBeenCalledWith({
+        data: { ...dto, plate: 'AB1234' },
+      });
+      expect(result).toEqual(created);
+    });
+
+    it('normalizes special-format plates when creating', async () => {
+      const dto = {
+        plate: 'e ua-123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        clientId: 'client-1',
+      };
+      const created = { ...vehicle, plate: 'EUA123' };
+      (clientsService.exists as unknown as jest.Mock).mockResolvedValue(true);
+      (prisma.vehicle.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+
+      const result = await service.create(dto);
+
+      expect(prisma.vehicle.create).toHaveBeenCalledWith({
+        data: { ...dto, plate: 'EUA123' },
+      });
+      expect(result).toEqual(created);
+    });
+
     it('throws ConflictException when the normalized plate already exists', async () => {
       const dto = {
         plate: 'abc 123',
@@ -267,6 +330,25 @@ describe('VehiclesService', () => {
         service.update('missing-id', { brand: 'X' })
       ).rejects.toThrow(NotFoundException);
       expect(prisma.vehicle.update).not.toHaveBeenCalled();
+    });
+
+    it('normalizes current-format plates when updating', async () => {
+      const dto = { plate: 'a1b-234' };
+      const updated = { ...vehicle, plate: 'A1B234' };
+      (prisma.vehicle.findUnique as unknown as jest.Mock).mockResolvedValue(
+        vehicle
+      );
+      (prisma.vehicle.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
+
+      const result = await service.update('vehicle-1', dto);
+
+      expect(prisma.vehicle.update).toHaveBeenCalledWith({
+        where: { id: 'vehicle-1' },
+        data: { plate: 'A1B234' },
+      });
+      expect(result).toEqual(updated);
     });
 
     it('throws ConflictException when the new plate already exists', async () => {
