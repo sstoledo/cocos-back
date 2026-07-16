@@ -28,6 +28,7 @@ export class ProductsService {
 
   async findAll() {
     const products = await this.prisma.product.findMany({
+      where: { isActive: true },
       orderBy: { name: 'asc' },
       include: {
         presentation: true,
@@ -40,14 +41,17 @@ export class ProductsService {
 
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: {
         presentation: true,
         brand: true,
         category: { include: { parent: true } },
       },
     });
-    return product ? this.toResponse(product) : null;
+    if (!product) {
+      throw new NotFoundException();
+    }
+    return this.toResponse(product);
   }
 
   async create(dto: CreateProductDto, image?: Express.Multer.File) {
@@ -68,7 +72,9 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpdateProductDto, image?: Express.Multer.File) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id, isActive: true },
+    });
     if (!product) {
       throw new NotFoundException();
     }
@@ -98,17 +104,17 @@ export class ProductsService {
   }
 
   async remove(id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id, isActive: true },
+    });
     if (!product) {
       throw new NotFoundException();
     }
 
-    const deleted = await this.prisma.product.delete({ where: { id } });
-    if (product.imagePublicId) {
-      this.uploadService.deleteImage(product.imagePublicId).catch((error) => {
-        console.error(`Failed to delete image ${product.imagePublicId}`, error);
-      });
-    }
+    const deleted = await this.prisma.product.update({
+      where: { id },
+      data: { isActive: false, deletedAt: new Date() },
+    });
     return this.toResponse(deleted);
   }
 

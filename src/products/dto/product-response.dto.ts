@@ -76,4 +76,8 @@ export class ProductResponseDto {
   @Expose()
   @Type(() => Date)
   updatedAt: Date;
+
+  @Expose()
+  @Type(() => Date)
+  deletedAt?: Date | null;
 }
