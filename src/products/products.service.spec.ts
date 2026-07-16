@@ -41,6 +41,10 @@ const productInclude = {
 
 const cloudName = 'demo';
 
+const activeWhere = { isActive: true };
+
+const softDeleteData = { isActive: false, deletedAt: expect.any(Date) };
+
 describe('ProductsService', () => {
   let service: ProductsService;
   let prisma: PrismaService;
@@ -69,7 +73,7 @@ describe('ProductsService', () => {
   });
 
   describe('findAll', () => {
-    it('returns all products ordered by name with relations included', async () => {
+    it('returns only active products ordered by name with relations included', async () => {
       const products = [
         {
           id: 'product-2',
@@ -91,6 +95,7 @@ describe('ProductsService', () => {
       const result = await service.findAll();
 
       expect(prisma.product.findMany).toHaveBeenCalledWith({
+        where: activeWhere,
         orderBy: { name: 'asc' },
         ...productInclude,
       });
@@ -100,7 +105,7 @@ describe('ProductsService', () => {
   });
 
   describe('findOne', () => {
-    it('returns a product by id with relations included', async () => {
+    it('returns an active product by id with relations included', async () => {
       const product = {
         id: 'product-1',
         name: 'Engine oil',
@@ -114,11 +119,39 @@ describe('ProductsService', () => {
       const result = await service.findOne('product-1');
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1' },
+        where: { id: 'product-1', isActive: true },
         ...productInclude,
       });
       expect(result).toMatchObject(product);
       expect(result).toBeInstanceOf(ProductResponseDto);
+    });
+
+    it('throws NotFoundException when the product is soft-deleted', async () => {
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(service.findOne('inactive-id')).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'inactive-id', isActive: true },
+        ...productInclude,
+      });
+    });
+
+    it('throws NotFoundException when the product does not exist', async () => {
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(service.findOne('missing-id')).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'missing-id', isActive: true },
+        ...productInclude,
+      });
     });
   });
 
@@ -210,7 +243,7 @@ describe('ProductsService', () => {
   });
 
   describe('update', () => {
-    it('updates fields without image', async () => {
+    it('updates fields without image when product is active', async () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
@@ -229,7 +262,7 @@ describe('ProductsService', () => {
       const result = await service.update('product-1', dto as never);
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1' },
+        where: { id: 'product-1', isActive: true },
       });
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
@@ -282,6 +315,20 @@ describe('ProductsService', () => {
       expect(result).toBeInstanceOf(ProductResponseDto);
     });
 
+    it('throws NotFoundException when the product is soft-deleted', async () => {
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(service.update('inactive-id', {} as never)).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'inactive-id', isActive: true },
+      });
+      expect(prisma.product.update).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when the product does not exist', async () => {
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         null
@@ -290,6 +337,9 @@ describe('ProductsService', () => {
       await expect(service.update('missing-id', {} as never)).rejects.toThrow(
         NotFoundException
       );
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'missing-id', isActive: true },
+      });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
 
@@ -335,7 +385,7 @@ describe('ProductsService', () => {
   });
 
   describe('remove', () => {
-    it('deletes the product and image asynchronously', async () => {
+    it('soft-deletes an active product and keeps the image', async () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
@@ -343,24 +393,40 @@ describe('ProductsService', () => {
         imagePublicId: 'products/old',
         ...baseRelations,
       };
+      const updated = { ...existing, ...softDeleteData };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
         existing
       );
-      (prisma.product.delete as unknown as jest.Mock).mockResolvedValue(
-        existing
+      (prisma.product.update as unknown as jest.Mock).mockResolvedValue(
+        updated
       );
 
       const result = await service.remove('product-1');
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1' },
+        where: { id: 'product-1', isActive: true },
       });
-      expect(prisma.product.delete).toHaveBeenCalledWith({
+      expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
+        data: softDeleteData,
       });
-      expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
-      expect(result).toMatchObject(existing);
+      expect(uploadService.deleteImage).not.toHaveBeenCalled();
+      expect(result).toMatchObject(updated);
       expect(result).toBeInstanceOf(ProductResponseDto);
+    });
+
+    it('throws NotFoundException when the product is already soft-deleted', async () => {
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(service.remove('inactive-id')).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'inactive-id', isActive: true },
+      });
+      expect(prisma.product.update).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when the product does not exist', async () => {
@@ -371,36 +437,10 @@ describe('ProductsService', () => {
       await expect(service.remove('missing-id')).rejects.toThrow(
         NotFoundException
       );
-      expect(prisma.product.delete).not.toHaveBeenCalled();
-    });
-
-    it('logs cleanup failure but keeps db deletion', async () => {
-      const existing = {
-        id: 'product-1',
-        name: 'Engine oil',
-        price: '30',
-        imagePublicId: 'products/old',
-        ...baseRelations,
-      };
-      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
-        existing
-      );
-      (prisma.product.delete as unknown as jest.Mock).mockResolvedValue(
-        existing
-      );
-      (uploadService.deleteImage as unknown as jest.Mock).mockRejectedValue(
-        new Error('delete failed')
-      );
-      const loggerSpy = jest
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined);
-
-      const result = await service.remove('product-1');
-
-      expect(result).toMatchObject(existing);
-      expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
-      expect(loggerSpy).toHaveBeenCalled();
-      loggerSpy.mockRestore();
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'missing-id', isActive: true },
+      });
+      expect(prisma.product.update).not.toHaveBeenCalled();
     });
   });
 

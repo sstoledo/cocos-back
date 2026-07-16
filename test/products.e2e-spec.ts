@@ -84,6 +84,7 @@ describe('Products (e2e)', () => {
           const product = {
             ...data,
             id: `product-${products.length + 1}`,
+            isActive: data.isActive ?? true,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             presentation: { id: data.presentationId, name: 'Presentation' },
@@ -117,7 +118,15 @@ describe('Products (e2e)', () => {
           products.splice(index, 1);
           return product;
         }),
-        findMany: jest.fn().mockResolvedValue(products),
+        findMany: jest.fn(({ where }) => {
+          let results = products;
+          if (where?.isActive !== undefined) {
+            results = results.filter(
+              (product) => product.isActive === where.isActive
+            );
+          }
+          return results;
+        }),
         findUnique: jest.fn(({ where }) => {
           let found = null;
           if (where.id) {
@@ -128,6 +137,12 @@ describe('Products (e2e)', () => {
               products.find((product) => product.code === where.code) ?? null;
           }
           if (!found) return null;
+          if (
+            where.isActive !== undefined &&
+            found.isActive !== where.isActive
+          ) {
+            return null;
+          }
           return {
             ...found,
             presentation: found.presentation || {
@@ -435,7 +450,7 @@ describe('Products (e2e)', () => {
   });
 
   describe('DELETE /api/products/:id', () => {
-    it('deletes the product and schedules image cleanup', async () => {
+    it('soft-deletes the product and keeps the image', async () => {
       await admin()
         .post('/api/products')
         .field('code', 'OIL-001')
@@ -449,10 +464,36 @@ describe('Products (e2e)', () => {
       const response = await admin().delete('/api/products/product-1');
 
       expect(response.status).toBe(200);
-      expect(response.body.id).toBe('product-1');
-      expect(uploadService.deleteImage).toHaveBeenCalledWith(
-        'products/fake-123'
-      );
+      expect(response.body).toMatchObject({
+        id: 'product-1',
+        isActive: false,
+        imagePublicId: uploadedImage.publicId,
+      });
+      expect(response.body.deletedAt).toBeDefined();
+      expect(uploadService.deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the product is already soft-deleted', async () => {
+      await admin()
+        .post('/api/products')
+        .field('code', 'OIL-001')
+        .field('name', 'Engine oil')
+        .field('price', '30')
+        .field('presentationId', catalogIds.presentationId)
+        .field('brandId', catalogIds.brandId)
+        .field('categoryId', catalogIds.categoryId);
+
+      await admin().delete('/api/products/product-1');
+
+      const response = await admin().delete('/api/products/product-1');
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 404 when the product does not exist', async () => {
+      const response = await admin().delete('/api/products/unknown-id');
+
+      expect(response.status).toBe(404);
     });
   });
 });
