@@ -9,6 +9,7 @@ import { LotsModule } from './lots/lots.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { ServicesModule } from './services/services.module';
 import { StockModule } from './stock';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
@@ -31,6 +32,7 @@ import { VehiclesModule } from './vehicles/vehicles.module';
     HealthModule,
     LotsModule,
     StockModule,
+    ServicesModule,
     VehiclesModule,
   ],
 })
