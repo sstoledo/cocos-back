@@ -116,6 +116,7 @@ describe('WorkOrdersService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
         count: jest.fn(),
       },
       workOrderService: {
@@ -137,6 +138,14 @@ describe('WorkOrdersService', () => {
       },
       product: {
         findUnique: jest.fn(),
+      },
+      lotItem: {
+        aggregate: jest.fn(),
+        findMany: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      stockMovement: {
+        create: jest.fn(),
       },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
@@ -1209,6 +1218,155 @@ describe('WorkOrdersService', () => {
         }),
       });
       expect(prisma.workOrder.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('transitionStatus', () => {
+    const orderAt = (status: string) => ({
+      ...workOrderRecord,
+      status,
+      products: [],
+    });
+
+    const fullRecordAt = (status: string) => ({
+      ...workOrderRecord,
+      status,
+      services: [],
+      products: [],
+    });
+
+    const mockSuccessfulTransition = (
+      from: string,
+      to: string,
+      guardCount = 1
+    ) => {
+      (prisma.workOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(orderAt(from))
+        .mockResolvedValueOnce(fullRecordAt(to));
+      (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+        count: guardCount,
+      });
+    };
+
+    it.each([
+      ['pending', 'in_progress'],
+      ['pending', 'cancelled'],
+      ['in_progress', 'done'],
+      ['in_progress', 'cancelled'],
+    ])(
+      'transitions %s → %s with a guarded updateMany inside a single transaction',
+      async (from, to) => {
+        mockSuccessfulTransition(from, to);
+
+        const result = await service.transitionStatus(
+          'wo-1',
+          to as WorkOrderStatus
+        );
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.workOrder.updateMany).toHaveBeenCalledWith({
+          where: { id: 'wo-1', status: from },
+          data: { status: to },
+        });
+        expect(result).toMatchObject({ id: 'wo-1', status: to });
+      }
+    );
+
+    it.each([
+      ['pending', 'done'],
+      ['pending', 'pending'],
+      ['in_progress', 'pending'],
+      ['in_progress', 'in_progress'],
+    ])(
+      'rejects illegal transition %s → %s with 409 INVALID_STATUS_TRANSITION and performs no writes',
+      async (from, to) => {
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+          orderAt(from)
+        );
+
+        await expect(
+          service.transitionStatus('wo-1', to as WorkOrderStatus)
+        ).rejects.toThrow(ConflictException);
+        await expect(
+          service.transitionStatus('wo-1', to as WorkOrderStatus)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'INVALID_STATUS_TRANSITION',
+          }),
+        });
+        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+      }
+    );
+
+    describe.each([['done'], ['cancelled']])('terminal status %s', (from) => {
+      it.each([['pending'], ['in_progress'], ['done'], ['cancelled']])(
+        'rejects transition to %s',
+        async (to) => {
+          (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+            orderAt(from)
+          );
+
+          await expect(
+            service.transitionStatus('wo-1', to as WorkOrderStatus)
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              errorCode: 'INVALID_STATUS_TRANSITION',
+            }),
+          });
+          expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+        }
+      );
+    });
+
+    it('throws 404 WORK_ORDER_NOT_FOUND (not 409) when the order is missing or inactive', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.transitionStatus('wo-1', WorkOrderStatus.in_progress)
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        service.transitionStatus('wo-1', WorkOrderStatus.in_progress)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'WORK_ORDER_NOT_FOUND',
+        }),
+      });
+      expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 INVALID_STATUS_TRANSITION when the guarded update matches zero rows (concurrent transition)', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+        orderAt('pending')
+      );
+      (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(
+        service.transitionStatus('wo-1', WorkOrderStatus.in_progress)
+      ).rejects.toThrow(ConflictException);
+      await expect(
+        service.transitionStatus('wo-1', WorkOrderStatus.in_progress)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'INVALID_STATUS_TRANSITION',
+        }),
+      });
+    });
+
+    it('completes a services-only order with zero stock operations', async () => {
+      mockSuccessfulTransition('in_progress', 'done');
+
+      const result = await service.transitionStatus(
+        'wo-1',
+        WorkOrderStatus.done
+      );
+
+      expect(result.status).toBe('done');
+      expect(prisma.lotItem.aggregate).not.toHaveBeenCalled();
+      expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
+      expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
     });
   });
 

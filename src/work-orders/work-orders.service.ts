@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, WorkOrderStatus } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +13,19 @@ import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import type { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
 import type { UpdateWorkOrderDto } from './dto/update-work-order.dto';
 import { WorkOrderResponseDto } from './dto/work-order-response.dto';
+
+const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
+  [WorkOrderStatus.pending]: [
+    WorkOrderStatus.in_progress,
+    WorkOrderStatus.cancelled,
+  ],
+  [WorkOrderStatus.in_progress]: [
+    WorkOrderStatus.done,
+    WorkOrderStatus.cancelled,
+  ],
+  [WorkOrderStatus.done]: [],
+  [WorkOrderStatus.cancelled]: [],
+};
 
 @Injectable()
 export class WorkOrdersService {
@@ -142,7 +155,6 @@ export class WorkOrdersService {
       ...(dto.description !== undefined && {
         description: dto.description,
       }),
-      ...(dto.status !== undefined && { status: dto.status }),
     };
 
     const linesInclude = {
@@ -219,6 +231,63 @@ export class WorkOrdersService {
         data: { ...scalarData, totalAmount },
         include: linesInclude,
       });
+    });
+
+    return this.toResponse(updated);
+  }
+
+  async transitionStatus(id: string, to: WorkOrderStatus) {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await tx.workOrder.findUnique({
+        where: { id, isActive: true },
+        include: { products: true },
+      });
+
+      if (!order) {
+        throw new NotFoundException({
+          message: 'Work order not found',
+          errorCode: 'WORK_ORDER_NOT_FOUND',
+        });
+      }
+
+      if (!ALLOWED_TRANSITIONS[order.status].includes(to)) {
+        throw new ConflictException({
+          message: `Cannot transition work order from '${order.status}' to '${to}'`,
+          errorCode: 'INVALID_STATUS_TRANSITION',
+        });
+      }
+
+      // PR3: consumeStockForOrder(tx, order) plugs in here when
+      // to === done && order.products.length > 0.
+
+      const guard = await tx.workOrder.updateMany({
+        where: { id, status: order.status },
+        data: { status: to },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: `Cannot transition work order from '${order.status}' to '${to}'`,
+          errorCode: 'INVALID_STATUS_TRANSITION',
+        });
+      }
+
+      const refreshed = await tx.workOrder.findUnique({
+        where: { id, isActive: true },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+        },
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Work order not found',
+          errorCode: 'WORK_ORDER_NOT_FOUND',
+        });
+      }
+
+      return refreshed;
     });
 
     return this.toResponse(updated);

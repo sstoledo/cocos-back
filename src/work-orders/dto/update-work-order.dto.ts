@@ -1,9 +1,7 @@
-import { WorkOrderStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -28,10 +26,6 @@ export class UpdateWorkOrderDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
-
-  @IsOptional()
-  @IsEnum(WorkOrderStatus)
-  status?: WorkOrderStatus;
 
   @IsOptional()
   @IsArray()
