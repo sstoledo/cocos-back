@@ -56,6 +56,58 @@ export class WorkOrderServiceResponseDto {
 }
 
 @Exclude()
+export class WorkOrderProductItemResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  code: string;
+
+  @Expose()
+  name: string;
+
+  @Expose()
+  description?: string | null;
+
+  @Expose()
+  @Transform(({ value }) => String(value))
+  price: string;
+}
+
+@Exclude()
+export class WorkOrderProductResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  productId: string;
+
+  @Expose()
+  @Type(() => Number)
+  quantity: number;
+
+  @Expose()
+  @Transform(({ value }) => String(value))
+  unitPriceSnapshot: string;
+
+  @Expose()
+  @Transform(({ value }) => String(value))
+  subtotal: string;
+
+  @Expose()
+  @Type(() => WorkOrderProductItemResponseDto)
+  product: WorkOrderProductItemResponseDto;
+
+  @Expose()
+  @Type(() => Date)
+  createdAt: Date;
+
+  @Expose()
+  @Type(() => Date)
+  updatedAt: Date;
+}
+
+@Exclude()
 export class WorkOrderResponseDto {
   @Expose()
   id: string;
@@ -85,6 +137,10 @@ export class WorkOrderResponseDto {
   @Expose()
   @Type(() => WorkOrderServiceResponseDto)
   services: WorkOrderServiceResponseDto[];
+
+  @Expose()
+  @Type(() => WorkOrderProductResponseDto)
+  products: WorkOrderProductResponseDto[];
 
   @Expose()
   @Type(() => Date)

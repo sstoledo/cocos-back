@@ -33,6 +33,23 @@ export class WorkOrderServiceLineDto {
   unitPrice?: number;
 }
 
+export class WorkOrderProductLineDto {
+  @IsUUID()
+  @IsNotEmpty()
+  productId: string;
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  quantity: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  @Type(() => Number)
+  unitPrice?: number;
+}
+
 export class CreateWorkOrderDto {
   @IsUUID()
   @IsNotEmpty()
@@ -51,9 +68,17 @@ export class CreateWorkOrderDto {
   @IsEnum(WorkOrderStatus)
   status?: WorkOrderStatus;
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => WorkOrderServiceLineDto)
-  services: WorkOrderServiceLineDto[];
+  services?: WorkOrderServiceLineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => WorkOrderProductLineDto)
+  products?: WorkOrderProductLineDto[];
 }

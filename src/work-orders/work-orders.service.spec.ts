@@ -37,6 +37,29 @@ describe('WorkOrdersService', () => {
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
+  const workOrderProductRecord = {
+    id: 'wop-1',
+    workOrderId: 'wo-1',
+    productId: 'prod-1',
+    quantity: 2,
+    unitPriceSnapshot: new Prisma.Decimal(40.25),
+    subtotal: new Prisma.Decimal(80.5),
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
+  const productRecord = {
+    id: 'prod-1',
+    code: 'OIL-5W30',
+    name: 'Engine oil 5W-30',
+    description: 'Synthetic engine oil',
+    price: new Prisma.Decimal(40.25),
+    isActive: true,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
   const vehicleRecord = {
     id: 'vehicle-1',
     plate: 'ABC123',
@@ -96,6 +119,11 @@ describe('WorkOrdersService', () => {
         deleteMany: jest.fn(),
         findMany: jest.fn(),
       },
+      workOrderProduct: {
+        createMany: jest.fn(),
+        deleteMany: jest.fn(),
+        findMany: jest.fn(),
+      },
       workOrderNumberSequence: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
@@ -103,8 +131,16 @@ describe('WorkOrdersService', () => {
       service: {
         findUnique: jest.fn(),
       },
+      product: {
+        findUnique: jest.fn(),
+      },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
+    (prisma.workOrderService.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.workOrderProduct.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.$transaction as jest.Mock).mockImplementation(
+      (callback: (tx: unknown) => unknown) => callback(prisma)
+    );
     service = new WorkOrdersService(
       prisma,
       // biome-ignore lint/suspicious/noExplicitAny: test mock types
@@ -188,7 +224,7 @@ describe('WorkOrdersService', () => {
             clientId: 'client-1',
             vehicleId: 'vehicle-1',
             description: 'Oil change and brake check',
-            totalAmount: 175.5,
+            totalAmount: new Prisma.Decimal(175.5),
             services: {
               create: [
                 {
@@ -502,7 +538,10 @@ describe('WorkOrdersService', () => {
         orderBy: { createdAt: 'desc' },
         skip: 0,
         take: 10,
-        include: { services: { include: { service: true } } },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+        },
       });
       expect(result.data).toHaveLength(2);
       expect(result.data[0]).toMatchObject({
@@ -530,7 +569,10 @@ describe('WorkOrdersService', () => {
         orderBy: { createdAt: 'desc' },
         skip: 0,
         take: 10,
-        include: { services: { include: { service: true } } },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+        },
       });
     });
   });
@@ -547,7 +589,10 @@ describe('WorkOrdersService', () => {
 
       expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
         where: { id: 'wo-1', isActive: true },
-        include: { services: { include: { service: true } } },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+        },
       });
       expect(result).toMatchObject({
         id: 'wo-1',
@@ -644,7 +689,10 @@ describe('WorkOrdersService', () => {
       expect(prisma.workOrder.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'wo-1' },
-          data: { description: 'Updated description', totalAmount: 270.0 },
+          data: {
+            description: 'Updated description',
+            totalAmount: new Prisma.Decimal(270.0),
+          },
         })
       );
       expect(result.totalAmount).toBe('270.00');
