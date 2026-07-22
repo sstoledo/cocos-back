@@ -293,6 +293,20 @@ describe('Work Orders (e2e)', () => {
             products: productLinesFor(updated.id as string),
           };
         }),
+        updateMany: jest.fn(({ where, data }) => {
+          const index = workOrders.findIndex(
+            (wo) =>
+              wo.id === where.id &&
+              (where.status === undefined || wo.status === where.status)
+          );
+          if (index === -1) return { count: 0 };
+          workOrders[index] = {
+            ...workOrders[index],
+            ...data,
+            updatedAt: new Date(),
+          };
+          return { count: 1 };
+        }),
         count: jest.fn(({ where }) => {
           let result = workOrders.filter((wo) => wo.isActive);
           if (where?.orderNumber?.contains) {
@@ -960,15 +974,17 @@ describe('Work Orders (e2e)', () => {
       });
     });
 
-    it('updates the status', async () => {
+    it('returns 400 when the body contains status and leaves the status unchanged', async () => {
       await createWorkOrder(admin());
 
       const response = await admin()
         .patch('/api/work-orders/wo-1')
         .send({ status: 'in_progress' });
 
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe('in_progress');
+      expect(response.status).toBe(400);
+
+      const current = await admin().get('/api/work-orders/wo-1');
+      expect(current.body.status).toBe('pending');
     });
 
     it('returns 400 when services is an empty array', async () => {
@@ -1037,6 +1053,53 @@ describe('Work Orders (e2e)', () => {
         .patch('/api/work-orders/wo-1')
         .send({ description: 'Nope' });
       expect(forbidden.status).toBe(403);
+    });
+  });
+
+  describe('PATCH /api/work-orders/:id/status', () => {
+    it('transitions pending → in_progress as a mechanic', async () => {
+      await createWorkOrder(admin());
+
+      const response = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('in_progress');
+    });
+
+    it('returns 400 for an invalid status value', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'not_a_status' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 409 INVALID_STATUS_TRANSITION for an illegal transition', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'done' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('INVALID_STATUS_TRANSITION');
+    });
+
+    it('returns 404 for a missing order and 401 when unauthenticated', async () => {
+      const missing = await admin()
+        .patch('/api/work-orders/wo-999/status')
+        .send({ status: 'in_progress' });
+      expect(missing.status).toBe(404);
+      expect(missing.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+
+      const unauthenticated = await anonymous()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(unauthenticated.status).toBe(401);
     });
   });
 
