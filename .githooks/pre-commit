@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook for cocos-back.
+# Source of truth for commit-time validation: Biome + Jest + NestJS build (tsc).
+# This replaces the previous GGA AI review hook, which was non-deterministic,
+# slow (~5 min per commit), and duplicated what our tests and linters already
+# guarantee. GGA now runs in PR mode instead (gga run --pr-mode).
+
+pnpm check
+pnpm test
+pnpm build

@@ -8,6 +8,7 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "postinstall": "prisma generate",
+    "prepare": "git config core.hooksPath .githooks",
     "build": "nest build",
     "format": "biome format --write ./src ./test",
     "format:check": "biome format ./src ./test",
