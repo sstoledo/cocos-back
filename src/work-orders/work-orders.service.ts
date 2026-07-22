@@ -257,8 +257,9 @@ export class WorkOrdersService {
         });
       }
 
-      // PR3: consumeStockForOrder(tx, order) plugs in here when
-      // to === done && order.products.length > 0.
+      if (to === WorkOrderStatus.done && order.products.length > 0) {
+        await this.consumeStockForOrder(tx, order);
+      }
 
       const guard = await tx.workOrder.updateMany({
         where: { id, status: order.status },
@@ -306,6 +307,93 @@ export class WorkOrdersService {
     });
 
     return this.toResponse(removed);
+  }
+
+  private async consumeStockForOrder(
+    tx: Prisma.TransactionClient,
+    order: {
+      id: string;
+      orderNumber: string;
+      products: Array<{ productId: string; quantity: number }>;
+    }
+  ): Promise<void> {
+    const shortages: Array<{
+      productId: string;
+      requested: number;
+      available: number;
+    }> = [];
+
+    for (const line of order.products) {
+      const aggregate = await tx.lotItem.aggregate({
+        _sum: { remainingQuantity: true },
+        where: { productId: line.productId, remainingQuantity: { gt: 0 } },
+      });
+      const available = aggregate._sum.remainingQuantity ?? 0;
+
+      if (available < line.quantity) {
+        shortages.push({
+          productId: line.productId,
+          requested: line.quantity,
+          available,
+        });
+      }
+    }
+
+    if (shortages.length > 0) {
+      throw new ConflictException({
+        message: 'Insufficient stock to complete the work order',
+        errorCode: 'INSUFFICIENT_STOCK',
+        details: shortages,
+      });
+    }
+
+    for (const line of order.products) {
+      const lots = await tx.lotItem.findMany({
+        where: { productId: line.productId, remainingQuantity: { gt: 0 } },
+        orderBy: { lot: { receivedAt: 'asc' } },
+      });
+
+      let needed = line.quantity;
+
+      for (const lot of lots) {
+        if (needed === 0) {
+          break;
+        }
+
+        const allocation = Math.min(lot.remainingQuantity, needed);
+        const lotGuard = await tx.lotItem.updateMany({
+          where: { id: lot.id, remainingQuantity: { gte: allocation } },
+          data: { remainingQuantity: { decrement: allocation } },
+        });
+
+        if (lotGuard.count === 0) {
+          throw new ConflictException({
+            message: 'Insufficient stock to complete the work order',
+            errorCode: 'INSUFFICIENT_STOCK',
+            details: [
+              {
+                productId: line.productId,
+                requested: line.quantity,
+                available: line.quantity - needed,
+              },
+            ],
+          });
+        }
+
+        await tx.stockMovement.create({
+          data: {
+            productId: line.productId,
+            lotItemId: lot.id,
+            workOrderId: order.id,
+            type: 'service_usage',
+            quantity: -allocation,
+            reason: `Work order ${order.orderNumber} completion`,
+          },
+        });
+
+        needed -= allocation;
+      }
+    }
   }
 
   private async ensureClientExists(clientId: string): Promise<void> {
