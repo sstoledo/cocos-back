@@ -109,27 +109,28 @@ model Category {
 }
 
 model Product {
-  id             String          @id @default(cuid()) @map("id")
-  code           String          @unique @map("code")
-  name           String          @map("name")
-  description    String?         @map("description")
-  price          Decimal         @map("price") @db.Decimal(10, 2)
-  barcode        String?         @unique @map("barcode")
-  taxRate        Decimal         @default(0.00) @map("tax_rate") @db.Decimal(5, 2)
-  notes          String?         @map("notes")
-  imagePublicId  String?         @map("image_public_id")
-  isActive       Boolean         @default(true) @map("is_active")
-  deletedAt      DateTime?       @map("deleted_at")
-  presentationId String          @map("presentation_id")
-  presentation   Presentation    @relation(fields: [presentationId], references: [id])
-  brandId        String          @map("brand_id")
-  brand          Brand           @relation(fields: [brandId], references: [id])
-  categoryId     String          @map("category_id")
-  category       Category        @relation(fields: [categoryId], references: [id])
-  lotItems       LotItem[]
-  stockMovements StockMovement[]
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+  id                String             @id @default(cuid()) @map("id")
+  code              String             @unique @map("code")
+  name              String             @map("name")
+  description       String?            @map("description")
+  price             Decimal            @map("price") @db.Decimal(10, 2)
+  barcode           String?            @unique @map("barcode")
+  taxRate           Decimal            @default(0.00) @map("tax_rate") @db.Decimal(5, 2)
+  notes             String?            @map("notes")
+  imagePublicId     String?            @map("image_public_id")
+  isActive          Boolean            @default(true) @map("is_active")
+  deletedAt         DateTime?          @map("deleted_at")
+  presentationId    String             @map("presentation_id")
+  presentation      Presentation       @relation(fields: [presentationId], references: [id])
+  brandId           String             @map("brand_id")
+  brand             Brand              @relation(fields: [brandId], references: [id])
+  categoryId        String             @map("category_id")
+  category          Category           @relation(fields: [categoryId], references: [id])
+  lotItems          LotItem[]
+  stockMovements    StockMovement[]
+  workOrderProducts WorkOrderProduct[]
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@index([code])
   @@index([name])
@@ -153,19 +154,19 @@ model Supplier {
 }
 
 model Client {
-  id                 String    @id @default(cuid())
+  id                 String      @id @default(cuid())
   name               String
   phone              String?
-  email              String?   @unique
+  email              String?     @unique
   address            String?
-  identification     String?   @unique
+  identification     String?     @unique
   identificationType String? // DNI | RUC
-  isActive           Boolean   @default(true)
+  isActive           Boolean     @default(true)
   deletedAt          DateTime?
   vehicles           Vehicle[]
   workOrders         WorkOrder[]
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   @@index([name])
   @@index([identification])
@@ -174,20 +175,20 @@ model Client {
 }
 
 model Vehicle {
-  id        String    @id @default(cuid())
-  plate     String    @unique
-  brand     String
-  model     String
-  year      Int?
-  color     String?
-  notes     String?
-  clientId  String    @map("client_id")
-  client    Client    @relation(fields: [clientId], references: [id])
+  id         String      @id @default(cuid())
+  plate      String      @unique
+  brand      String
+  model      String
+  year       Int?
+  color      String?
+  notes      String?
+  clientId   String      @map("client_id")
+  client     Client      @relation(fields: [clientId], references: [id])
   workOrders WorkOrder[]
-  isActive  Boolean   @default(true) @map("is_active")
-  deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  isActive   Boolean     @default(true) @map("is_active")
+  deletedAt  DateTime?   @map("deleted_at")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
 
   @@index([clientId])
   @@index([isActive])
@@ -280,20 +281,21 @@ enum WorkOrderStatus {
 }
 
 model WorkOrder {
-  id            String            @id @default(cuid())
-  orderNumber   String            @unique @map("order_number")
-  clientId      String            @map("client_id")
-  client        Client            @relation(fields: [clientId], references: [id])
-  vehicleId     String            @map("vehicle_id")
-  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id])
-  description   String?
-  status        WorkOrderStatus   @default(pending)
-  totalAmount   Decimal           @default(0.00) @map("total_amount") @db.Decimal(10, 2)
-  isActive      Boolean           @default(true) @map("is_active")
-  deletedAt     DateTime?         @map("deleted_at")
-  services      WorkOrderService[]
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
+  id          String             @id @default(cuid())
+  orderNumber String             @unique @map("order_number")
+  clientId    String             @map("client_id")
+  client      Client             @relation(fields: [clientId], references: [id])
+  vehicleId   String             @map("vehicle_id")
+  vehicle     Vehicle            @relation(fields: [vehicleId], references: [id])
+  description String?
+  status      WorkOrderStatus    @default(pending)
+  totalAmount Decimal            @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  isActive    Boolean            @default(true) @map("is_active")
+  deletedAt   DateTime?          @map("deleted_at")
+  services    WorkOrderService[]
+  products    WorkOrderProduct[]
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
 
   @@index([clientId])
   @@index([vehicleId])
@@ -303,19 +305,35 @@ model WorkOrder {
 }
 
 model WorkOrderService {
-  id                String        @id @default(cuid())
-  workOrderId       String        @map("work_order_id")
-  workOrder         WorkOrder     @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  serviceId         String        @map("service_id")
-  service           Service       @relation(fields: [serviceId], references: [id])
-  quantity          Int           @default(1)
-  unitPriceSnapshot Decimal       @map("unit_price_snapshot") @db.Decimal(10, 2)
-  subtotal          Decimal       @db.Decimal(10, 2)
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
+  id                String    @id @default(cuid())
+  workOrderId       String    @map("work_order_id")
+  workOrder         WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  serviceId         String    @map("service_id")
+  service           Service   @relation(fields: [serviceId], references: [id])
+  quantity          Int       @default(1)
+  unitPriceSnapshot Decimal   @map("unit_price_snapshot") @db.Decimal(10, 2)
+  subtotal          Decimal   @db.Decimal(10, 2)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@unique([workOrderId, serviceId])
   @@map("work_order_services")
+}
+
+model WorkOrderProduct {
+  id                String    @id @default(cuid())
+  workOrderId       String    @map("work_order_id")
+  workOrder         WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  productId         String    @map("product_id")
+  product           Product   @relation(fields: [productId], references: [id])
+  quantity          Int       @default(1)
+  unitPriceSnapshot Decimal   @map("unit_price_snapshot") @db.Decimal(10, 2)
+  subtotal          Decimal   @db.Decimal(10, 2)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([workOrderId, productId])
+  @@map("work_order_products")
 }
 
 model WorkOrderNumberSequence {
