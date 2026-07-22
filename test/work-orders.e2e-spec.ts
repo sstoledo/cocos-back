@@ -39,6 +39,9 @@ const SERVICE_ID = '66666666-6666-4666-8666-666666666666';
 const SERVICE_2_ID = '77777777-7777-4777-8777-777777777777';
 const SERVICE_INACTIVE_ID = '88888888-8888-4888-8888-888888888888';
 const MISSING_ID = '99999999-9999-4999-8999-999999999999';
+const PRODUCT_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const PRODUCT_2_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
+const PRODUCT_INACTIVE_ID = 'cccccccc-3333-4333-8333-333333333333';
 
 describe('Work Orders (e2e)', () => {
   let app: INestApplication;
@@ -93,8 +96,38 @@ describe('Work Orders (e2e)', () => {
         deletedAt: new Date(),
       },
     ];
+    const products: Array<Record<string, unknown>> = [
+      {
+        id: PRODUCT_ID,
+        code: 'FLT-001',
+        name: 'Oil filter',
+        description: 'Engine oil filter',
+        price: new Prisma.Decimal(100),
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: PRODUCT_2_ID,
+        code: 'PAD-001',
+        name: 'Brake pads',
+        description: null,
+        price: new Prisma.Decimal(25),
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: PRODUCT_INACTIVE_ID,
+        code: 'OLD-P01',
+        name: 'Retired part',
+        description: null,
+        price: new Prisma.Decimal(10),
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    ];
     const workOrders: Array<Record<string, unknown>> = [];
     const workOrderServices: Array<Record<string, unknown>> = [];
+    const workOrderProducts: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
 
     const linesFor = (workOrderId: string) =>
@@ -103,6 +136,14 @@ describe('Work Orders (e2e)', () => {
         .map((line) => ({
           ...line,
           service: services.find((service) => service.id === line.serviceId),
+        }));
+
+    const productLinesFor = (workOrderId: string) =>
+      workOrderProducts
+        .filter((line) => line.workOrderId === workOrderId)
+        .map((line) => ({
+          ...line,
+          product: products.find((product) => product.id === line.productId),
         }));
 
     prisma = {
@@ -137,6 +178,17 @@ describe('Work Orders (e2e)', () => {
               service.id === where.id &&
               (where.isActive === undefined ||
                 service.isActive === where.isActive)
+          );
+          return found ?? null;
+        }),
+      },
+      product: {
+        findUnique: jest.fn(({ where }) => {
+          const found = products.find(
+            (product) =>
+              product.id === where.id &&
+              (where.isActive === undefined ||
+                product.isActive === where.isActive)
           );
           return found ?? null;
         }),
@@ -176,7 +228,23 @@ describe('Work Orders (e2e)', () => {
               updatedAt: new Date(),
             });
           }
-          return { ...workOrder, services: linesFor(id) };
+          for (const [index, line] of data.products.create.entries()) {
+            workOrderProducts.push({
+              id: `wop-${workOrderProducts.length + 1}`,
+              workOrderId: id,
+              productId: line.productId,
+              quantity: line.quantity,
+              unitPriceSnapshot: line.unitPriceSnapshot,
+              subtotal: line.subtotal,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          return {
+            ...workOrder,
+            services: linesFor(id),
+            products: productLinesFor(id),
+          };
         }),
         findMany: jest.fn(({ where, skip, take }) => {
           let result = workOrders.filter((wo) => wo.isActive);
@@ -186,9 +254,11 @@ describe('Work Orders (e2e)', () => {
               (wo.orderNumber as string).toLowerCase().includes(query)
             );
           }
-          return result
-            .slice(skip, skip + take)
-            .map((wo) => ({ ...wo, services: linesFor(wo.id as string) }));
+          return result.slice(skip, skip + take).map((wo) => ({
+            ...wo,
+            services: linesFor(wo.id as string),
+            products: productLinesFor(wo.id as string),
+          }));
         }),
         findUnique: jest.fn(({ where }) => {
           if (where.orderNumber) {
@@ -203,7 +273,11 @@ describe('Work Orders (e2e)', () => {
               (where.isActive === undefined || wo.isActive === where.isActive)
           );
           if (!found) return null;
-          return { ...found, services: linesFor(found.id as string) };
+          return {
+            ...found,
+            services: linesFor(found.id as string),
+            products: productLinesFor(found.id as string),
+          };
         }),
         update: jest.fn(({ where, data }) => {
           const index = workOrders.findIndex((wo) => wo.id === where.id);
@@ -213,7 +287,11 @@ describe('Work Orders (e2e)', () => {
             updatedAt: new Date(),
           };
           workOrders[index] = updated;
-          return { ...updated, services: linesFor(updated.id as string) };
+          return {
+            ...updated,
+            services: linesFor(updated.id as string),
+            products: productLinesFor(updated.id as string),
+          };
         }),
         count: jest.fn(({ where }) => {
           let result = workOrders.filter((wo) => wo.isActive);
@@ -247,7 +325,40 @@ describe('Work Orders (e2e)', () => {
           }
           return { count: data.length };
         }),
+        findMany: jest.fn(({ where }) =>
+          workOrderServices.filter(
+            (line) => line.workOrderId === where.workOrderId
+          )
+        ),
       },
+      workOrderProduct: {
+        deleteMany: jest.fn(({ where }) => {
+          const before = workOrderProducts.length;
+          for (let i = workOrderProducts.length - 1; i >= 0; i--) {
+            if (workOrderProducts[i].workOrderId === where.workOrderId) {
+              workOrderProducts.splice(i, 1);
+            }
+          }
+          return { count: before - workOrderProducts.length };
+        }),
+        createMany: jest.fn(({ data }) => {
+          for (const line of data) {
+            workOrderProducts.push({
+              id: `wop-${workOrderProducts.length + 1}`,
+              ...line,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          return { count: data.length };
+        }),
+        findMany: jest.fn(({ where }) =>
+          workOrderProducts.filter(
+            (line) => line.workOrderId === where.workOrderId
+          )
+        ),
+      },
+      $transaction: jest.fn((callback) => callback(prisma)),
       workOrderNumberSequence: {
         upsert: jest.fn(({ where, create, update }) => {
           const existing = sequences.find((seq) => seq.year === where.year);
@@ -517,6 +628,101 @@ describe('Work Orders (e2e)', () => {
       expect(inactive.body.errorCode).toBe('SERVICE_NOT_FOUND');
     });
 
+    it('creates a work order with products only and snapshots the product price', async () => {
+      const response = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          products: [{ productId: PRODUCT_ID, quantity: 2 }],
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.totalAmount).toBe('200.00');
+      expect(response.body.services).toEqual([]);
+      expect(response.body.products).toHaveLength(1);
+      expect(response.body.products[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        quantity: 2,
+        unitPriceSnapshot: '100.00',
+        subtotal: '200.00',
+      });
+      expect(response.body.products[0].product).toMatchObject({
+        code: 'FLT-001',
+        name: 'Oil filter',
+        price: '100.00',
+      });
+    });
+
+    it('creates a work order with services and products, totaling both line types', async () => {
+      const response = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 3 }],
+          products: [{ productId: PRODUCT_ID, quantity: 1, unitPrice: 80.5 }],
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.totalAmount).toBe('230.50');
+      expect(response.body.services).toHaveLength(1);
+      expect(response.body.services[0]).toMatchObject({
+        serviceId: SERVICE_ID,
+        quantity: 3,
+        unitPriceSnapshot: '50.00',
+        subtotal: '150.00',
+      });
+      expect(response.body.products).toHaveLength(1);
+      expect(response.body.products[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        quantity: 1,
+        unitPriceSnapshot: '80.50',
+        subtotal: '80.50',
+      });
+    });
+
+    it('returns 404 when a product does not exist or is inactive', async () => {
+      const missing = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          products: [{ productId: MISSING_ID, quantity: 1 }],
+        });
+      expect(missing.status).toBe(404);
+      expect(missing.body.errorCode).toBe('PRODUCT_NOT_FOUND');
+
+      const inactive = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          products: [{ productId: PRODUCT_INACTIVE_ID, quantity: 1 }],
+        });
+      expect(inactive.status).toBe(404);
+      expect(inactive.body.errorCode).toBe('PRODUCT_NOT_FOUND');
+    });
+
+    it('returns 400 when services and products are both empty or omitted', async () => {
+      const emptyArrays = await admin().post('/api/work-orders').send({
+        clientId: CLIENT_ID,
+        vehicleId: VEHICLE_ID,
+        services: [],
+        products: [],
+      });
+      expect(emptyArrays.status).toBe(400);
+
+      const omitted = await admin().post('/api/work-orders').send({
+        clientId: CLIENT_ID,
+        vehicleId: VEHICLE_ID,
+      });
+      expect(omitted.status).toBe(400);
+      expect(omitted.body.errorCode).toBe('WORK_ORDER_EMPTY_LINES');
+
+      expect(prisma.workOrder.create).not.toHaveBeenCalled();
+    });
+
     it('returns 401 when not authenticated', async () => {
       const response = await anonymous()
         .post('/api/work-orders')
@@ -625,6 +831,35 @@ describe('Work Orders (e2e)', () => {
       });
     });
 
+    it('includes product lines with string decimals', async () => {
+      await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 3 }],
+          products: [{ productId: PRODUCT_ID, quantity: 1, unitPrice: 80.5 }],
+        });
+
+      const response = await mechanic().get('/api/work-orders/wo-1');
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalAmount).toBe('230.50');
+      expect(response.body.services).toHaveLength(1);
+      expect(response.body.products).toHaveLength(1);
+      expect(response.body.products[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        quantity: 1,
+        unitPriceSnapshot: '80.50',
+        subtotal: '80.50',
+      });
+      expect(response.body.products[0].product).toMatchObject({
+        code: 'FLT-001',
+        name: 'Oil filter',
+        price: '100.00',
+      });
+    });
+
     it('returns 404 for a deleted or missing work order', async () => {
       await createWorkOrder(admin());
       await admin().delete('/api/work-orders/wo-1');
@@ -655,6 +890,72 @@ describe('Work Orders (e2e)', () => {
       expect(response.body.services[0]).toMatchObject({
         serviceId: SERVICE_ID,
         quantity: 2,
+        subtotal: '100.00',
+      });
+    });
+
+    it('replaces only product lines, leaving services untouched and recomputing the total', async () => {
+      await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+          products: [{ productId: PRODUCT_ID, quantity: 1 }],
+        });
+
+      const response = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({
+          products: [{ productId: PRODUCT_2_ID, quantity: 2 }],
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalAmount).toBe('100.00');
+      expect(response.body.services).toHaveLength(1);
+      expect(response.body.services[0]).toMatchObject({
+        serviceId: SERVICE_ID,
+        quantity: 1,
+        subtotal: '50.00',
+      });
+      expect(response.body.products).toHaveLength(1);
+      expect(response.body.products[0]).toMatchObject({
+        productId: PRODUCT_2_ID,
+        quantity: 2,
+        unitPriceSnapshot: '25.00',
+        subtotal: '50.00',
+      });
+    });
+
+    it('replaces only service lines, leaving products untouched and recomputing the total', async () => {
+      await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+          products: [{ productId: PRODUCT_ID, quantity: 1 }],
+        });
+
+      const response = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({
+          services: [{ serviceId: SERVICE_2_ID, quantity: 2 }],
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.totalAmount).toBe('300.00');
+      expect(response.body.services).toHaveLength(1);
+      expect(response.body.services[0]).toMatchObject({
+        serviceId: SERVICE_2_ID,
+        quantity: 2,
+        subtotal: '200.00',
+      });
+      expect(response.body.products).toHaveLength(1);
+      expect(response.body.products[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        quantity: 1,
+        unitPriceSnapshot: '100.00',
         subtotal: '100.00',
       });
     });
@@ -751,6 +1052,25 @@ describe('Work Orders (e2e)', () => {
 
       const getResponse = await mechanic().get('/api/work-orders/wo-1');
       expect(getResponse.status).toBe(404);
+    });
+
+    it('soft-deletes a work order with product lines and subsequent GET returns 404', async () => {
+      await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          products: [{ productId: PRODUCT_ID, quantity: 1 }],
+        });
+
+      const response = await admin().delete('/api/work-orders/wo-1');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ id: 'wo-1', isActive: false });
+
+      const getResponse = await mechanic().get('/api/work-orders/wo-1');
+      expect(getResponse.status).toBe(404);
+      expect(getResponse.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
     });
 
     it('returns 404 when deleting an already deleted work order', async () => {
