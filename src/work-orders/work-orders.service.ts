@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -22,14 +23,22 @@ export class WorkOrdersService {
   ) {}
 
   async create(dto: CreateWorkOrderDto) {
+    const serviceLines = dto.services ?? [];
+    const productLines = dto.products ?? [];
+
+    if (serviceLines.length === 0 && productLines.length === 0) {
+      throw new BadRequestException({
+        message: 'Work order must include at least one service or product line',
+        errorCode: 'WORK_ORDER_EMPTY_LINES',
+      });
+    }
+
     await this.validateClientVehiclePair(dto.clientId, dto.vehicleId, true);
 
-    const serviceLineItems = await this.buildServiceLineItems(dto.services);
+    const serviceLineItems = await this.buildServiceLineItems(serviceLines);
+    const productLineItems = await this.resolveProducts(productLines);
 
-    const totalAmount = serviceLineItems.reduce(
-      (sum, item) => sum + Number(item.subtotal),
-      0
-    );
+    const totalAmount = this.computeTotal(serviceLineItems, productLineItems);
 
     const orderNumber = await this.generateOrderNumber();
 
@@ -49,8 +58,19 @@ export class WorkOrdersService {
             subtotal: item.subtotal,
           })),
         },
+        products: {
+          create: productLineItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPriceSnapshot: item.unitPriceSnapshot,
+            subtotal: item.subtotal,
+          })),
+        },
       },
-      include: { services: { include: { service: true } } },
+      include: {
+        services: { include: { service: true } },
+        products: { include: { product: true } },
+      },
     });
 
     return this.toResponse(workOrder);
@@ -70,7 +90,10 @@ export class WorkOrdersService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        include: { services: { include: { service: true } } },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+        },
       }),
       this.prisma.workOrder.count({ where }),
     ]);
@@ -84,7 +107,10 @@ export class WorkOrdersService {
   async findOne(id: string) {
     const workOrder = await this.prisma.workOrder.findUnique({
       where: { id, isActive: true },
-      include: { services: { include: { service: true } } },
+      include: {
+        services: { include: { service: true } },
+        products: { include: { product: true } },
+      },
     });
     if (!workOrder) {
       throw new NotFoundException({
@@ -111,54 +137,88 @@ export class WorkOrdersService {
       ...(dto.vehicleId !== undefined && { vehicleId: dto.vehicleId }),
     };
 
-    if (dto.services && dto.services.length > 0) {
-      const serviceLineItems = await this.buildServiceLineItems(dto.services);
+    const scalarData = {
+      ...clientVehicleData,
+      ...(dto.description !== undefined && {
+        description: dto.description,
+      }),
+      ...(dto.status !== undefined && { status: dto.status }),
+    };
 
-      await this.prisma.workOrderService.deleteMany({
-        where: { workOrderId: id },
-      });
+    const linesInclude = {
+      services: { include: { service: true } },
+      products: { include: { product: true } },
+    } as const;
 
-      await this.prisma.workOrderService.createMany({
-        data: serviceLineItems.map((item) => ({
-          workOrderId: id,
-          serviceId: item.serviceId,
-          quantity: item.quantity,
-          unitPriceSnapshot: item.unitPriceSnapshot,
-          subtotal: item.subtotal,
-        })),
-      });
-
-      const totalAmount = serviceLineItems.reduce(
-        (sum, item) => sum + Number(item.subtotal),
-        0
-      );
-
+    if (dto.services === undefined && dto.products === undefined) {
       const updated = await this.prisma.workOrder.update({
         where: { id },
-        data: {
-          ...clientVehicleData,
-          ...(dto.description !== undefined && {
-            description: dto.description,
-          }),
-          ...(dto.status !== undefined && { status: dto.status }),
-          totalAmount,
-        },
-        include: { services: { include: { service: true } } },
+        data: scalarData,
+        include: linesInclude,
       });
 
       return this.toResponse(updated);
     }
 
-    const updated = await this.prisma.workOrder.update({
-      where: { id },
-      data: {
-        ...clientVehicleData,
-        ...(dto.description !== undefined && {
-          description: dto.description,
-        }),
-        ...(dto.status !== undefined && { status: dto.status }),
-      },
-      include: { services: { include: { service: true } } },
+    const serviceLineItems =
+      dto.services !== undefined
+        ? await this.buildServiceLineItems(dto.services)
+        : null;
+    const productLineItems =
+      dto.products !== undefined
+        ? await this.resolveProducts(dto.products)
+        : null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (serviceLineItems) {
+        await tx.workOrderService.deleteMany({
+          where: { workOrderId: id },
+        });
+
+        await tx.workOrderService.createMany({
+          data: serviceLineItems.map((item) => ({
+            workOrderId: id,
+            serviceId: item.serviceId,
+            quantity: item.quantity,
+            unitPriceSnapshot: item.unitPriceSnapshot,
+            subtotal: item.subtotal,
+          })),
+        });
+      }
+
+      if (productLineItems) {
+        await tx.workOrderProduct.deleteMany({
+          where: { workOrderId: id },
+        });
+
+        await tx.workOrderProduct.createMany({
+          data: productLineItems.map((item) => ({
+            workOrderId: id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPriceSnapshot: item.unitPriceSnapshot,
+            subtotal: item.subtotal,
+          })),
+        });
+      }
+
+      const serviceLinesForTotal =
+        serviceLineItems ??
+        (await tx.workOrderService.findMany({ where: { workOrderId: id } }));
+      const productLinesForTotal =
+        productLineItems ??
+        (await tx.workOrderProduct.findMany({ where: { workOrderId: id } }));
+
+      const totalAmount = this.computeTotal(
+        serviceLinesForTotal,
+        productLinesForTotal
+      );
+
+      return tx.workOrder.update({
+        where: { id },
+        data: { ...scalarData, totalAmount },
+        include: linesInclude,
+      });
     });
 
     return this.toResponse(updated);
@@ -170,7 +230,10 @@ export class WorkOrdersService {
     const removed = await this.prisma.workOrder.update({
       where: { id },
       data: { isActive: false, deletedAt: new Date() },
-      include: { services: { include: { service: true } } },
+      include: {
+        services: { include: { service: true } },
+        products: { include: { product: true } },
+      },
     });
 
     return this.toResponse(removed);
@@ -219,7 +282,7 @@ export class WorkOrdersService {
   }
 
   private async buildServiceLineItems(
-    services: CreateWorkOrderDto['services']
+    services: NonNullable<CreateWorkOrderDto['services']>
   ): Promise<
     Array<{
       serviceId: string;
@@ -254,6 +317,56 @@ export class WorkOrdersService {
     }
 
     return lineItems;
+  }
+
+  private async resolveProducts(
+    products: NonNullable<CreateWorkOrderDto['products']>
+  ): Promise<
+    Array<{
+      productId: string;
+      quantity: number;
+      unitPriceSnapshot: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+    }>
+  > {
+    const lineItems = [];
+
+    for (const line of products) {
+      const product = await this.prisma.product.findUnique({
+        where: { id: line.productId, isActive: true },
+      });
+
+      if (!product) {
+        throw new NotFoundException({
+          message: 'Product not found or inactive',
+          errorCode: 'PRODUCT_NOT_FOUND',
+        });
+      }
+
+      const unitPriceSnapshot = line.unitPrice ?? Number(product.price);
+      const subtotal = unitPriceSnapshot * line.quantity;
+
+      lineItems.push({
+        productId: line.productId,
+        quantity: line.quantity,
+        unitPriceSnapshot: new Prisma.Decimal(unitPriceSnapshot),
+        subtotal: new Prisma.Decimal(subtotal),
+      });
+    }
+
+    return lineItems;
+  }
+
+  private computeTotal(
+    serviceLines: Array<{ subtotal: Prisma.Decimal }>,
+    productLines: Array<{ subtotal: Prisma.Decimal }>
+  ): Prisma.Decimal {
+    const sum = [...serviceLines, ...productLines].reduce(
+      (total, line) => total + Number(line.subtotal),
+      0
+    );
+
+    return new Prisma.Decimal(sum);
   }
 
   private async generateOrderNumber(): Promise<string> {
@@ -308,6 +421,22 @@ export class WorkOrdersService {
         estimatedDuration: number | null;
       };
     }>;
+    products?: Array<{
+      id: string;
+      productId: string;
+      quantity: number;
+      unitPriceSnapshot: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+      createdAt: Date;
+      updatedAt: Date;
+      product: {
+        id: string;
+        code: string;
+        name: string;
+        description: string | null;
+        price: Prisma.Decimal;
+      };
+    }>;
   }): WorkOrderResponseDto {
     const services = workOrder.services?.map((s) => ({
       id: s.id,
@@ -327,12 +456,30 @@ export class WorkOrdersService {
       },
     }));
 
+    const products = workOrder.products?.map((p) => ({
+      id: p.id,
+      productId: p.productId,
+      quantity: p.quantity,
+      unitPriceSnapshot: Number(p.unitPriceSnapshot).toFixed(2),
+      subtotal: Number(p.subtotal).toFixed(2),
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      product: {
+        id: p.product.id,
+        code: p.product.code,
+        name: p.product.name,
+        description: p.product.description,
+        price: Number(p.product.price).toFixed(2),
+      },
+    }));
+
     return plainToInstance(
       WorkOrderResponseDto,
       {
         ...workOrder,
         totalAmount: Number(workOrder.totalAmount).toFixed(2),
         services: services ?? [],
+        products: products ?? [],
       },
       { excludeExtraneousValues: true }
     );

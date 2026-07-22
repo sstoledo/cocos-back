@@ -10,7 +10,10 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { WorkOrderServiceLineDto } from './create-work-order.dto';
+import {
+  WorkOrderProductLineDto,
+  WorkOrderServiceLineDto,
+} from './create-work-order.dto';
 
 export class UpdateWorkOrderDto {
   @IsOptional()
@@ -36,4 +39,11 @@ export class UpdateWorkOrderDto {
   @ValidateNested({ each: true })
   @Type(() => WorkOrderServiceLineDto)
   services?: WorkOrderServiceLineDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => WorkOrderProductLineDto)
+  products?: WorkOrderProductLineDto[];
 }
