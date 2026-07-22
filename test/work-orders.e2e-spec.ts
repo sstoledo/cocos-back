@@ -46,6 +46,9 @@ const PRODUCT_INACTIVE_ID = 'cccccccc-3333-4333-8333-333333333333';
 describe('Work Orders (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let lots: Array<Record<string, unknown>>;
+  let lotItems: Array<Record<string, unknown>>;
+  let stockMovements: Array<Record<string, unknown>>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -129,6 +132,9 @@ describe('Work Orders (e2e)', () => {
     const workOrderServices: Array<Record<string, unknown>> = [];
     const workOrderProducts: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
+    lots = [];
+    lotItems = [];
+    stockMovements = [];
 
     const linesFor = (workOrderId: string) =>
       workOrderServices
@@ -371,6 +377,63 @@ describe('Work Orders (e2e)', () => {
             (line) => line.workOrderId === where.workOrderId
           )
         ),
+      },
+      lotItem: {
+        aggregate: jest.fn(({ where }) => {
+          const sum = lotItems
+            .filter(
+              (item) =>
+                item.productId === where.productId &&
+                (where.remainingQuantity?.gt === undefined ||
+                  (item.remainingQuantity as number) >
+                    where.remainingQuantity.gt)
+            )
+            .reduce(
+              (total, item) => total + (item.remainingQuantity as number),
+              0
+            );
+          return { _sum: { remainingQuantity: sum } };
+        }),
+        findMany: jest.fn(({ where, orderBy }) => {
+          const matches = lotItems.filter(
+            (item) =>
+              item.productId === where.productId &&
+              (where.remainingQuantity?.gt === undefined ||
+                (item.remainingQuantity as number) > where.remainingQuantity.gt)
+          );
+          if (orderBy?.lot?.receivedAt === 'asc') {
+            const receivedAt = (item: Record<string, unknown>) =>
+              (
+                lots.find((lot) => lot.id === item.lotId)?.receivedAt as Date
+              ).getTime();
+            matches.sort((a, b) => receivedAt(a) - receivedAt(b));
+          }
+          return matches;
+        }),
+        updateMany: jest.fn(({ where, data }) => {
+          const item = lotItems.find(
+            (candidate) =>
+              candidate.id === where.id &&
+              (candidate.remainingQuantity as number) >=
+                where.remainingQuantity.gte
+          );
+          if (!item) return { count: 0 };
+          item.remainingQuantity =
+            (item.remainingQuantity as number) -
+            data.remainingQuantity.decrement;
+          return { count: 1 };
+        }),
+      },
+      stockMovement: {
+        create: jest.fn(({ data }) => {
+          const movement = {
+            id: `sm-${stockMovements.length + 1}`,
+            ...data,
+            createdAt: new Date(),
+          };
+          stockMovements.push(movement);
+          return movement;
+        }),
       },
       $transaction: jest.fn((callback) => callback(prisma)),
       workOrderNumberSequence: {
@@ -1057,7 +1120,7 @@ describe('Work Orders (e2e)', () => {
   });
 
   describe('PATCH /api/work-orders/:id/status', () => {
-    it('transitions pending → in_progress as a mechanic', async () => {
+    it('transitions pending → in_progress as a mechanic with no stock movements (S1)', async () => {
       await createWorkOrder(admin());
 
       const response = await mechanic()
@@ -1066,6 +1129,8 @@ describe('Work Orders (e2e)', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('in_progress');
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+      expect(stockMovements).toHaveLength(0);
     });
 
     it('returns 400 for an invalid status value', async () => {
@@ -1100,6 +1165,165 @@ describe('Work Orders (e2e)', () => {
         .patch('/api/work-orders/wo-1/status')
         .send({ status: 'in_progress' });
       expect(unauthenticated.status).toBe(401);
+    });
+
+    it('returns 404 when transitioning a soft-deleted order (S6)', async () => {
+      await createWorkOrder(admin());
+      await admin().delete('/api/work-orders/wo-1');
+
+      const response = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+    });
+
+    it('rejects any transition from cancelled with 409 (S5)', async () => {
+      await createWorkOrder(admin());
+      await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'cancelled' });
+
+      const response = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('INVALID_STATUS_TRANSITION');
+    });
+
+    it('rejects any transition from done, including same-status, with 409 (S5)', async () => {
+      await createWorkOrder(admin());
+      await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'done' });
+
+      for (const status of ['in_progress', 'cancelled', 'done']) {
+        const response = await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status });
+        expect(response.status).toBe(409);
+        expect(response.body.errorCode).toBe('INVALID_STATUS_TRANSITION');
+      }
+    });
+
+    describe('stock consumption on done', () => {
+      const seedStock = (
+        lotItemARemaining: number,
+        lotItemBRemaining: number
+      ) => {
+        lots.push(
+          { id: 'lot-a', receivedAt: new Date('2026-01-15T00:00:00.000Z') },
+          { id: 'lot-b', receivedAt: new Date('2026-02-15T00:00:00.000Z') }
+        );
+        lotItems.push(
+          {
+            id: 'lot-item-a',
+            lotId: 'lot-a',
+            productId: PRODUCT_ID,
+            remainingQuantity: lotItemARemaining,
+          },
+          {
+            id: 'lot-item-b',
+            lotId: 'lot-b',
+            productId: PRODUCT_ID,
+            remainingQuantity: lotItemBRemaining,
+          }
+        );
+      };
+
+      const createProductOrder = (quantity: number) =>
+        admin()
+          .post('/api/work-orders')
+          .send({
+            clientId: CLIENT_ID,
+            vehicleId: VEHICLE_ID,
+            products: [{ productId: PRODUCT_ID, quantity }],
+          });
+
+      it('completes an order consuming stock FIFO and writes service_usage movements (S2)', async () => {
+        seedStock(3, 4);
+        await createProductOrder(5);
+        await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'in_progress' });
+
+        const response = await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'done' });
+
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('done');
+        expect(
+          lotItems.find((item) => item.id === 'lot-item-a')?.remainingQuantity
+        ).toBe(0);
+        expect(
+          lotItems.find((item) => item.id === 'lot-item-b')?.remainingQuantity
+        ).toBe(2);
+        expect(stockMovements).toHaveLength(2);
+        expect(stockMovements[0]).toMatchObject({
+          productId: PRODUCT_ID,
+          lotItemId: 'lot-item-a',
+          workOrderId: 'wo-1',
+          type: 'service_usage',
+          quantity: -3,
+        });
+        expect(stockMovements[1]).toMatchObject({
+          productId: PRODUCT_ID,
+          lotItemId: 'lot-item-b',
+          workOrderId: 'wo-1',
+          type: 'service_usage',
+          quantity: -2,
+        });
+      });
+
+      it('returns 409 INSUFFICIENT_STOCK and leaves stock, movements, and status untouched (S3)', async () => {
+        seedStock(3, 1);
+        await createProductOrder(5);
+        await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'in_progress' });
+
+        const response = await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'done' });
+
+        expect(response.status).toBe(409);
+        expect(response.body.errorCode).toBe('INSUFFICIENT_STOCK');
+        expect(response.body.details).toEqual([
+          { productId: PRODUCT_ID, requested: 5, available: 4 },
+        ]);
+        expect(
+          lotItems.find((item) => item.id === 'lot-item-a')?.remainingQuantity
+        ).toBe(3);
+        expect(
+          lotItems.find((item) => item.id === 'lot-item-b')?.remainingQuantity
+        ).toBe(1);
+        expect(stockMovements).toHaveLength(0);
+
+        const current = await mechanic().get('/api/work-orders/wo-1');
+        expect(current.body.status).toBe('in_progress');
+      });
+
+      it('completes a services-only order with zero stock movements (S4)', async () => {
+        await createWorkOrder(admin());
+        await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'in_progress' });
+
+        const response = await mechanic()
+          .patch('/api/work-orders/wo-1/status')
+          .send({ status: 'done' });
+
+        expect(response.status).toBe(200);
+        expect(response.body.status).toBe('done');
+        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+        expect(stockMovements).toHaveLength(0);
+      });
     });
   });
 
