@@ -247,18 +247,22 @@ model LotItem {
 }
 
 model StockMovement {
-  id        String            @id @default(cuid())
-  productId String
-  product   Product           @relation(fields: [productId], references: [id])
-  lotItemId String?
-  lotItem   LotItem?          @relation(fields: [lotItemId], references: [id])
+  id          String            @id @default(cuid())
+  productId   String
+  product     Product           @relation(fields: [productId], references: [id])
+  lotItemId   String?
+  lotItem     LotItem?          @relation(fields: [lotItemId], references: [id])
+  workOrderId String?           @map("work_order_id")
+  workOrder   WorkOrder?        @relation(fields: [workOrderId], references: [id])
   type      StockMovementType
-  quantity  Int
-  reason    String?
-  createdAt DateTime          @default(now())
+  quantity    Int
+  reason      String?
+  createdAt   DateTime          @default(now())
+
 
   @@index([productId])
   @@index([lotItemId])
+  @@index([workOrderId])
   @@map("stock_movements")
 }
 
@@ -281,21 +285,22 @@ enum WorkOrderStatus {
 }
 
 model WorkOrder {
-  id          String             @id @default(cuid())
-  orderNumber String             @unique @map("order_number")
-  clientId    String             @map("client_id")
-  client      Client             @relation(fields: [clientId], references: [id])
-  vehicleId   String             @map("vehicle_id")
-  vehicle     Vehicle            @relation(fields: [vehicleId], references: [id])
-  description String?
-  status      WorkOrderStatus    @default(pending)
-  totalAmount Decimal            @default(0.00) @map("total_amount") @db.Decimal(10, 2)
-  isActive    Boolean            @default(true) @map("is_active")
-  deletedAt   DateTime?          @map("deleted_at")
-  services    WorkOrderService[]
-  products    WorkOrderProduct[]
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
+  id             String             @id @default(cuid())
+  orderNumber    String             @unique @map("order_number")
+  clientId       String             @map("client_id")
+  client         Client             @relation(fields: [clientId], references: [id])
+  vehicleId      String             @map("vehicle_id")
+  vehicle        Vehicle            @relation(fields: [vehicleId], references: [id])
+  description    String?
+  status         WorkOrderStatus    @default(pending)
+  totalAmount    Decimal            @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  isActive       Boolean            @default(true) @map("is_active")
+  deletedAt      DateTime?          @map("deleted_at")
+  services       WorkOrderService[]
+  products       WorkOrderProduct[]
+  stockMovements StockMovement[]
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
 
   @@index([clientId])
   @@index([vehicleId])
