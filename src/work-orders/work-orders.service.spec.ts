@@ -1368,6 +1368,208 @@ describe('WorkOrdersService', () => {
       expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
       expect(prisma.stockMovement.create).not.toHaveBeenCalled();
     });
+
+    describe('done stock consumption', () => {
+      const orderWithProducts = (
+        lines: Array<{ productId: string; quantity: number }>
+      ) => ({
+        ...workOrderRecord,
+        status: 'in_progress',
+        products: lines.map((line, index) => ({
+          ...workOrderProductRecord,
+          id: `wop-${index + 1}`,
+          productId: line.productId,
+          quantity: line.quantity,
+        })),
+      });
+
+      const mockOrderAndRefresh = (
+        order: ReturnType<typeof orderWithProducts>
+      ) => {
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(order)
+          .mockResolvedValueOnce(fullRecordAt('done'));
+      };
+
+      it('consumes stock FIFO across multiple lots and writes one movement per slice', async () => {
+        mockOrderAndRefresh(
+          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
+        );
+        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { remainingQuantity: 7 },
+        });
+        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
+          { id: 'lot-item-a', remainingQuantity: 3 },
+          { id: 'lot-item-b', remainingQuantity: 4 },
+        ]);
+        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+        (prisma.stockMovement.create as jest.Mock).mockResolvedValue({});
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        const result = await service.transitionStatus(
+          'wo-1',
+          WorkOrderStatus.done
+        );
+
+        expect(result.status).toBe('done');
+        expect(prisma.lotItem.aggregate).toHaveBeenCalledWith({
+          _sum: { remainingQuantity: true },
+          where: { productId: 'prod-1', remainingQuantity: { gt: 0 } },
+        });
+        expect(prisma.lotItem.findMany).toHaveBeenCalledWith({
+          where: { productId: 'prod-1', remainingQuantity: { gt: 0 } },
+          orderBy: { lot: { receivedAt: 'asc' } },
+        });
+        expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(1, {
+          where: { id: 'lot-item-a', remainingQuantity: { gte: 3 } },
+          data: { remainingQuantity: { decrement: 3 } },
+        });
+        expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(2, {
+          where: { id: 'lot-item-b', remainingQuantity: { gte: 2 } },
+          data: { remainingQuantity: { decrement: 2 } },
+        });
+        expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(1, {
+          data: {
+            productId: 'prod-1',
+            lotItemId: 'lot-item-a',
+            workOrderId: 'wo-1',
+            type: 'service_usage',
+            quantity: -3,
+            reason: 'Work order OC-2026-000001 completion',
+          },
+        });
+        expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(2, {
+          data: {
+            productId: 'prod-1',
+            lotItemId: 'lot-item-b',
+            workOrderId: 'wo-1',
+            type: 'service_usage',
+            quantity: -2,
+            reason: 'Work order OC-2026-000001 completion',
+          },
+        });
+        expect(prisma.workOrder.updateMany).toHaveBeenCalledWith({
+          where: { id: 'wo-1', status: 'in_progress' },
+          data: { status: 'done' },
+        });
+      });
+
+      it('consumes a single lot exactly when available equals requested', async () => {
+        mockOrderAndRefresh(
+          orderWithProducts([{ productId: 'prod-1', quantity: 3 }])
+        );
+        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { remainingQuantity: 3 },
+        });
+        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
+          { id: 'lot-item-a', remainingQuantity: 3 },
+        ]);
+        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+        (prisma.stockMovement.create as jest.Mock).mockResolvedValue({});
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        await service.transitionStatus('wo-1', WorkOrderStatus.done);
+
+        expect(prisma.lotItem.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.lotItem.updateMany).toHaveBeenCalledWith({
+          where: { id: 'lot-item-a', remainingQuantity: { gte: 3 } },
+          data: { remainingQuantity: { decrement: 3 } },
+        });
+        expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
+        expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ quantity: -3 }),
+        });
+      });
+
+      it('aborts with 409 INSUFFICIENT_STOCK when aggregate stock is short and performs no writes', async () => {
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
+        );
+        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { remainingQuantity: 4 },
+        });
+
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toThrow(ConflictException);
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'INSUFFICIENT_STOCK',
+            details: [{ productId: 'prod-1', requested: 5, available: 4 }],
+          }),
+        });
+        expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
+        expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
+        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('collects shortages across all product lines (treating null sums as zero) before aborting', async () => {
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+          orderWithProducts([
+            { productId: 'prod-1', quantity: 5 },
+            { productId: 'prod-2', quantity: 3 },
+          ])
+        );
+        (prisma.lotItem.aggregate as jest.Mock)
+          .mockResolvedValueOnce({ _sum: { remainingQuantity: 4 } })
+          .mockResolvedValueOnce({ _sum: { remainingQuantity: null } });
+
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'INSUFFICIENT_STOCK',
+            details: [
+              { productId: 'prod-1', requested: 5, available: 4 },
+              { productId: 'prod-2', requested: 3, available: 0 },
+            ],
+          }),
+        });
+        expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
+        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('aborts with 409 INSUFFICIENT_STOCK when a lot guard matches zero rows (concurrent consumption)', async () => {
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
+        );
+        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
+          _sum: { remainingQuantity: 7 },
+        });
+        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
+          { id: 'lot-item-a', remainingQuantity: 3 },
+          { id: 'lot-item-b', remainingQuantity: 4 },
+        ]);
+        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
+          count: 0,
+        });
+
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toThrow(ConflictException);
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'INSUFFICIENT_STOCK',
+          }),
+        });
+        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('remove', () => {
