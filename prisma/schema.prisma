@@ -34,6 +34,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  employee      Employee?
 }
 
 model Session {
@@ -291,6 +292,10 @@ model WorkOrder {
   client         Client             @relation(fields: [clientId], references: [id])
   vehicleId      String             @map("vehicle_id")
   vehicle        Vehicle            @relation(fields: [vehicleId], references: [id])
+  employeeId     String?            @map("employee_id")
+  employee       Employee?          @relation(fields: [employeeId], references: [id])
+  branchId       String?            @map("branch_id")
+  branch         Branch?            @relation(fields: [branchId], references: [id])
   description    String?
   status         WorkOrderStatus    @default(pending)
   totalAmount    Decimal            @default(0.00) @map("total_amount") @db.Decimal(10, 2)
@@ -304,6 +309,8 @@ model WorkOrder {
 
   @@index([clientId])
   @@index([vehicleId])
+  @@index([employeeId])
+  @@index([branchId])
   @@index([status])
   @@index([isActive])
   @@map("work_orders")
@@ -339,6 +346,39 @@ model WorkOrderProduct {
 
   @@unique([workOrderId, productId])
   @@map("work_order_products")
+}
+
+model Employee {
+  id         String      @id @default(cuid())
+  name       String
+  specialty  String?
+  phone      String?
+  email      String?
+  userId     String?     @unique @map("user_id")
+  user       User?       @relation(fields: [userId], references: [id])
+  isActive   Boolean     @default(true) @map("is_active")
+  deletedAt  DateTime?   @map("deleted_at")
+  workOrders WorkOrder[]
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@map("employees")
+}
+
+model Branch {
+  id         String      @id @default(cuid())
+  name       String      @unique
+  address    String?
+  phone      String?
+  isActive   Boolean     @default(true) @map("is_active")
+  deletedAt  DateTime?   @map("deleted_at")
+  workOrders WorkOrder[]
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@map("branches")
 }
 
 model WorkOrderNumberSequence {
