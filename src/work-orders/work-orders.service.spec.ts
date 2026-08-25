@@ -100,6 +100,30 @@ describe('WorkOrdersService', () => {
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
+  const employeeRecord = {
+    id: 'emp-1',
+    name: 'Juan Pérez',
+    specialty: 'Mecánica general',
+    phone: null,
+    email: null,
+    userId: null,
+    isActive: true,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
+  const branchRecord = {
+    id: 'branch-1',
+    name: 'Sucursal Central',
+    address: null,
+    phone: null,
+    isActive: true,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
   const createPrismaError = (code: string) =>
     new Prisma.PrismaClientKnownRequestError('constraint', {
       code,
@@ -137,6 +161,12 @@ describe('WorkOrdersService', () => {
         findUnique: jest.fn(),
       },
       product: {
+        findUnique: jest.fn(),
+      },
+      employee: {
+        findUnique: jest.fn(),
+      },
+      branch: {
         findUnique: jest.fn(),
       },
       lotItem: {
@@ -683,6 +713,252 @@ describe('WorkOrdersService', () => {
     });
   });
 
+  describe('assignment', () => {
+    const setupSuccessfulCreate = (created: Record<string, unknown>) => {
+      (clientsService.exists as jest.Mock).mockResolvedValue(true);
+      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
+      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
+      (prisma.workOrderNumberSequence.upsert as jest.Mock).mockResolvedValue({
+        ...sequenceRecord,
+        lastNumber: 1,
+      });
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.workOrder.create as jest.Mock).mockResolvedValue(created);
+    };
+
+    it('assigns an active employee and branch on create (S1)', async () => {
+      const dto: CreateWorkOrderDto = {
+        clientId: 'client-1',
+        vehicleId: 'vehicle-1',
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+        services: [{ serviceId: 'svc-1', quantity: 1 }],
+      };
+      setupSuccessfulCreate({
+        ...workOrderRecord,
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+        employee: employeeRecord,
+        branch: branchRecord,
+        services: [{ ...workOrderServiceRecord, service: serviceRecord }],
+      });
+      (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+        employeeRecord
+      );
+      (prisma.branch.findUnique as jest.Mock).mockResolvedValue(branchRecord);
+
+      const result = await service.create(dto);
+
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-1', isActive: true },
+      });
+      expect(prisma.branch.findUnique).toHaveBeenCalledWith({
+        where: { id: 'branch-1', isActive: true },
+      });
+      expect(prisma.workOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            employeeId: 'emp-1',
+            branchId: 'branch-1',
+          }),
+        })
+      );
+      expect(result.employee).toEqual({ id: 'emp-1', name: 'Juan Pérez' });
+      expect(result.branch).toEqual({
+        id: 'branch-1',
+        name: 'Sucursal Central',
+      });
+    });
+
+    it('creates unassigned without querying employee/branch when omitted (S2)', async () => {
+      const dto: CreateWorkOrderDto = {
+        clientId: 'client-1',
+        vehicleId: 'vehicle-1',
+        services: [{ serviceId: 'svc-1', quantity: 1 }],
+      };
+      setupSuccessfulCreate({
+        ...workOrderRecord,
+        employeeId: null,
+        branchId: null,
+        employee: null,
+        branch: null,
+        services: [{ ...workOrderServiceRecord, service: serviceRecord }],
+      });
+
+      const result = await service.create(dto);
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+      const createArgs = (prisma.workOrder.create as jest.Mock).mock
+        .calls[0][0];
+      expect(createArgs.data).not.toHaveProperty('employeeId');
+      expect(createArgs.data).not.toHaveProperty('branchId');
+      expect(result.employee).toBeNull();
+      expect(result.branch).toBeNull();
+    });
+
+    it('throws 404 EMPLOYEE_NOT_FOUND when the employee is missing or inactive (S3)', async () => {
+      const dto: CreateWorkOrderDto = {
+        clientId: 'client-1',
+        vehicleId: 'vehicle-1',
+        employeeId: 'emp-missing',
+        services: [{ serviceId: 'svc-1', quantity: 1 }],
+      };
+      (clientsService.exists as jest.Mock).mockResolvedValue(true);
+      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
+      (prisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.create(dto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(dto)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EMPLOYEE_NOT_FOUND',
+        }),
+      });
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-missing', isActive: true },
+      });
+      expect(prisma.workOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 BRANCH_NOT_FOUND when the branch is missing or inactive (S4)', async () => {
+      const dto: CreateWorkOrderDto = {
+        clientId: 'client-1',
+        vehicleId: 'vehicle-1',
+        branchId: 'branch-missing',
+        services: [{ serviceId: 'svc-1', quantity: 1 }],
+      };
+      (clientsService.exists as jest.Mock).mockResolvedValue(true);
+      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
+      (prisma.branch.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.create(dto)).rejects.toThrow(NotFoundException);
+      await expect(service.create(dto)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'BRANCH_NOT_FOUND',
+        }),
+      });
+      expect(prisma.branch.findUnique).toHaveBeenCalledWith({
+        where: { id: 'branch-missing', isActive: true },
+      });
+      expect(prisma.workOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('assigns employee and branch on update with validation (S5)', async () => {
+      const dto: UpdateWorkOrderDto = {
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+      };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+        workOrderRecord
+      );
+      (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+        employeeRecord
+      );
+      (prisma.branch.findUnique as jest.Mock).mockResolvedValue(branchRecord);
+      (prisma.workOrder.update as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+        employee: employeeRecord,
+        branch: branchRecord,
+      });
+
+      const result = await service.update('wo-1', dto);
+
+      expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+        where: { id: 'emp-1', isActive: true },
+      });
+      expect(prisma.branch.findUnique).toHaveBeenCalledWith({
+        where: { id: 'branch-1', isActive: true },
+      });
+      expect(prisma.workOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            employeeId: 'emp-1',
+            branchId: 'branch-1',
+          }),
+        })
+      );
+      expect(result.employee).toEqual({ id: 'emp-1', name: 'Juan Pérez' });
+      expect(result.branch).toEqual({
+        id: 'branch-1',
+        name: 'Sucursal Central',
+      });
+    });
+
+    it('clears the assignment with explicit null without validating (S5)', async () => {
+      const dto: UpdateWorkOrderDto = { employeeId: null };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+      });
+      (prisma.workOrder.update as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        employeeId: null,
+        branchId: 'branch-1',
+        employee: null,
+        branch: branchRecord,
+      });
+
+      const result = await service.update('wo-1', dto);
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.workOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ employeeId: null }),
+        })
+      );
+      const updateArgs = (prisma.workOrder.update as jest.Mock).mock
+        .calls[0][0];
+      expect(updateArgs.data).not.toHaveProperty('branchId');
+      expect(result.employee).toBeNull();
+      expect(result.branch).toEqual({
+        id: 'branch-1',
+        name: 'Sucursal Central',
+      });
+    });
+
+    it('leaves the assignment unchanged when fields are omitted (S5)', async () => {
+      const dto: UpdateWorkOrderDto = { description: 'Only description' };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+        workOrderRecord
+      );
+      (prisma.workOrder.update as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        description: 'Only description',
+      });
+
+      const result = await service.update('wo-1', dto);
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+      const updateArgs = (prisma.workOrder.update as jest.Mock).mock
+        .calls[0][0];
+      expect(updateArgs.data).not.toHaveProperty('employeeId');
+      expect(updateArgs.data).not.toHaveProperty('branchId');
+      expect(result.description).toBe('Only description');
+    });
+
+    it('throws 404 EMPLOYEE_NOT_FOUND on update with a missing employee', async () => {
+      const dto: UpdateWorkOrderDto = { employeeId: 'emp-missing' };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
+        workOrderRecord
+      );
+      (prisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.update('wo-1', dto)).rejects.toThrow(
+        NotFoundException
+      );
+      await expect(service.update('wo-1', dto)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'EMPLOYEE_NOT_FOUND',
+        }),
+      });
+      expect(prisma.workOrder.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findAll', () => {
     it('returns paginated active work orders', async () => {
       const records = [
@@ -713,6 +989,8 @@ describe('WorkOrdersService', () => {
         include: {
           services: { include: { service: true } },
           products: { include: { product: true } },
+          employee: true,
+          branch: true,
         },
       });
       expect(result.data).toHaveLength(2);
@@ -744,6 +1022,8 @@ describe('WorkOrdersService', () => {
         include: {
           services: { include: { service: true } },
           products: { include: { product: true } },
+          employee: true,
+          branch: true,
         },
       });
     });
@@ -764,6 +1044,8 @@ describe('WorkOrdersService', () => {
         include: {
           services: { include: { service: true } },
           products: { include: { product: true } },
+          employee: true,
+          branch: true,
         },
       });
       expect(result).toMatchObject({
@@ -787,6 +1069,8 @@ describe('WorkOrdersService', () => {
         include: {
           services: { include: { service: true } },
           products: { include: { product: true } },
+          employee: true,
+          branch: true,
         },
       });
       expect(result.products[0]).toMatchObject({

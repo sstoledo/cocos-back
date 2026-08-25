@@ -27,6 +27,14 @@ const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
   [WorkOrderStatus.cancelled]: [],
 };
 
+const ASSIGNMENT_INCLUDE = { employee: true, branch: true } as const;
+
+const WORK_ORDER_INCLUDE = {
+  services: { include: { service: true } },
+  products: { include: { product: true } },
+  ...ASSIGNMENT_INCLUDE,
+} as const;
+
 @Injectable()
 export class WorkOrdersService {
   constructor(
@@ -47,6 +55,12 @@ export class WorkOrdersService {
     }
 
     await this.validateClientVehiclePair(dto.clientId, dto.vehicleId, true);
+    if (dto.employeeId !== undefined) {
+      await this.ensureEmployeeExists(dto.employeeId);
+    }
+    if (dto.branchId !== undefined) {
+      await this.ensureBranchExists(dto.branchId);
+    }
 
     const serviceLineItems = await this.buildServiceLineItems(serviceLines);
     const productLineItems = await this.resolveProducts(productLines);
@@ -62,6 +76,8 @@ export class WorkOrdersService {
         vehicleId: dto.vehicleId,
         description: dto.description,
         ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.employeeId !== undefined && { employeeId: dto.employeeId }),
+        ...(dto.branchId !== undefined && { branchId: dto.branchId }),
         totalAmount,
         services: {
           create: serviceLineItems.map((item) => ({
@@ -80,10 +96,7 @@ export class WorkOrdersService {
           })),
         },
       },
-      include: {
-        services: { include: { service: true } },
-        products: { include: { product: true } },
-      },
+      include: WORK_ORDER_INCLUDE,
     });
 
     return this.toResponse(workOrder);
@@ -103,10 +116,7 @@ export class WorkOrdersService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        include: {
-          services: { include: { service: true } },
-          products: { include: { product: true } },
-        },
+        include: WORK_ORDER_INCLUDE,
       }),
       this.prisma.workOrder.count({ where }),
     ]);
@@ -120,10 +130,7 @@ export class WorkOrdersService {
   async findOne(id: string) {
     const workOrder = await this.prisma.workOrder.findUnique({
       where: { id, isActive: true },
-      include: {
-        services: { include: { service: true } },
-        products: { include: { product: true } },
-      },
+      include: WORK_ORDER_INCLUDE,
     });
     if (!workOrder) {
       throw new NotFoundException({
@@ -145,6 +152,13 @@ export class WorkOrdersService {
       );
     }
 
+    if (dto.employeeId !== undefined && dto.employeeId !== null) {
+      await this.ensureEmployeeExists(dto.employeeId);
+    }
+    if (dto.branchId !== undefined && dto.branchId !== null) {
+      await this.ensureBranchExists(dto.branchId);
+    }
+
     const clientVehicleData = {
       ...(dto.clientId !== undefined && { clientId: dto.clientId }),
       ...(dto.vehicleId !== undefined && { vehicleId: dto.vehicleId }),
@@ -152,15 +166,14 @@ export class WorkOrdersService {
 
     const scalarData = {
       ...clientVehicleData,
+      ...(dto.employeeId !== undefined && { employeeId: dto.employeeId }),
+      ...(dto.branchId !== undefined && { branchId: dto.branchId }),
       ...(dto.description !== undefined && {
         description: dto.description,
       }),
     };
 
-    const linesInclude = {
-      services: { include: { service: true } },
-      products: { include: { product: true } },
-    } as const;
+    const linesInclude = WORK_ORDER_INCLUDE;
 
     if (dto.services === undefined && dto.products === undefined) {
       const updated = await this.prisma.workOrder.update({
@@ -275,10 +288,7 @@ export class WorkOrdersService {
 
       const refreshed = await tx.workOrder.findUnique({
         where: { id, isActive: true },
-        include: {
-          services: { include: { service: true } },
-          products: { include: { product: true } },
-        },
+        include: WORK_ORDER_INCLUDE,
       });
 
       if (!refreshed) {
@@ -300,10 +310,7 @@ export class WorkOrdersService {
     const removed = await this.prisma.workOrder.update({
       where: { id },
       data: { isActive: false, deletedAt: new Date() },
-      include: {
-        services: { include: { service: true } },
-        products: { include: { product: true } },
-      },
+      include: WORK_ORDER_INCLUDE,
     });
 
     return this.toResponse(removed);
@@ -402,6 +409,30 @@ export class WorkOrdersService {
       throw new NotFoundException({
         message: 'Client not found or inactive',
         errorCode: 'CLIENT_NOT_FOUND',
+      });
+    }
+  }
+
+  private async ensureEmployeeExists(employeeId: string): Promise<void> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId, isActive: true },
+    });
+    if (!employee) {
+      throw new NotFoundException({
+        message: 'Employee not found or inactive',
+        errorCode: 'EMPLOYEE_NOT_FOUND',
+      });
+    }
+  }
+
+  private async ensureBranchExists(branchId: string): Promise<void> {
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId, isActive: true },
+    });
+    if (!branch) {
+      throw new NotFoundException({
+        message: 'Branch not found or inactive',
+        errorCode: 'BRANCH_NOT_FOUND',
       });
     }
   }
@@ -561,6 +592,8 @@ export class WorkOrdersService {
     createdAt: Date;
     updatedAt: Date;
     deletedAt: Date | null;
+    employee?: { id: string; name: string } | null;
+    branch?: { id: string; name: string } | null;
     services?: Array<{
       id: string;
       serviceId: string;
@@ -635,6 +668,12 @@ export class WorkOrdersService {
       {
         ...workOrder,
         totalAmount: Number(workOrder.totalAmount).toFixed(2),
+        employee: workOrder.employee
+          ? { id: workOrder.employee.id, name: workOrder.employee.name }
+          : null,
+        branch: workOrder.branch
+          ? { id: workOrder.branch.id, name: workOrder.branch.name }
+          : null,
         services: services ?? [],
         products: products ?? [],
       },
