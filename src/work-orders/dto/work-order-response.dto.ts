@@ -126,6 +126,30 @@ export class BranchSummaryDto {
 }
 
 @Exclude()
+export class ClientSummaryDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  name: string;
+}
+
+@Exclude()
+export class VehicleSummaryDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  plate: string;
+
+  @Expose()
+  brand: string;
+
+  @Expose()
+  model: string;
+}
+
+@Exclude()
 export class WorkOrderResponseDto {
   @Expose()
   id: string;
@@ -159,6 +183,14 @@ export class WorkOrderResponseDto {
   @Expose()
   @Type(() => BranchSummaryDto)
   branch: BranchSummaryDto | null;
+
+  @Expose()
+  @Type(() => ClientSummaryDto)
+  client?: ClientSummaryDto;
+
+  @Expose()
+  @Type(() => VehicleSummaryDto)
+  vehicle?: VehicleSummaryDto;
 
   @Expose()
   @Type(() => WorkOrderServiceResponseDto)
