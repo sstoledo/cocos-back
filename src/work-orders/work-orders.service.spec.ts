@@ -797,6 +797,39 @@ describe('WorkOrdersService', () => {
       expect(result.branch).toBeNull();
     });
 
+    it('creates unassigned with explicit null without querying employee/branch (S2)', async () => {
+      const dto: CreateWorkOrderDto = {
+        clientId: 'client-1',
+        vehicleId: 'vehicle-1',
+        employeeId: null,
+        branchId: null,
+        services: [{ serviceId: 'svc-1', quantity: 1 }],
+      };
+      setupSuccessfulCreate({
+        ...workOrderRecord,
+        employeeId: null,
+        branchId: null,
+        employee: null,
+        branch: null,
+        services: [{ ...workOrderServiceRecord, service: serviceRecord }],
+      });
+
+      const result = await service.create(dto);
+
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+      expect(prisma.workOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            employeeId: null,
+            branchId: null,
+          }),
+        })
+      );
+      expect(result.employee).toBeNull();
+      expect(result.branch).toBeNull();
+    });
+
     it('throws 404 EMPLOYEE_NOT_FOUND when the employee is missing or inactive (S3)', async () => {
       const dto: CreateWorkOrderDto = {
         clientId: 'client-1',
@@ -1079,6 +1112,40 @@ describe('WorkOrdersService', () => {
         unitPriceSnapshot: '40.25',
         subtotal: '80.50',
         product: { id: 'prod-1', code: 'OIL-5W30', price: '40.25' },
+      });
+    });
+
+    it('keeps the historical employee summary on read after the employee is soft-deleted (S6)', async () => {
+      const softDeletedEmployee = {
+        ...employeeRecord,
+        isActive: false,
+        deletedAt: new Date('2026-02-01T00:00:00.000Z'),
+      };
+      const record = {
+        ...workOrderRecord,
+        employeeId: 'emp-1',
+        branchId: 'branch-1',
+        employee: softDeletedEmployee,
+        branch: branchRecord,
+        services: [{ ...workOrderServiceRecord, service: serviceRecord }],
+      };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(record);
+
+      const result = await service.findOne('wo-1');
+
+      expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
+        where: { id: 'wo-1', isActive: true },
+        include: {
+          services: { include: { service: true } },
+          products: { include: { product: true } },
+          employee: true,
+          branch: true,
+        },
+      });
+      expect(result.employee).toEqual({ id: 'emp-1', name: 'Juan Pérez' });
+      expect(result.branch).toEqual({
+        id: 'branch-1',
+        name: 'Sucursal Central',
       });
     });
 

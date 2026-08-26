@@ -1432,6 +1432,24 @@ describe('Work Orders (e2e)', () => {
       expect(prisma.branch.findUnique).not.toHaveBeenCalled();
     });
 
+    it('creates an unassigned order when assignment fields are explicit null (S2)', async () => {
+      const response = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: null,
+          branchId: null,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.employee).toBeNull();
+      expect(response.body.branch).toBeNull();
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+    });
+
     it('returns 404 EMPLOYEE_NOT_FOUND for a missing or inactive employee on create (S3)', async () => {
       const missing = await admin()
         .post('/api/work-orders')

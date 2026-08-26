@@ -60,11 +60,11 @@ export class CreateWorkOrderDto {
 
   @IsOptional()
   @IsString()
-  employeeId?: string;
+  employeeId?: string | null;
 
   @IsOptional()
   @IsString()
-  branchId?: string;
+  branchId?: string | null;
 
   @IsOptional()
   @IsString()

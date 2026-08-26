@@ -55,10 +55,10 @@ export class WorkOrdersService {
     }
 
     await this.validateClientVehiclePair(dto.clientId, dto.vehicleId, true);
-    if (dto.employeeId !== undefined) {
+    if (dto.employeeId !== undefined && dto.employeeId !== null) {
       await this.ensureEmployeeExists(dto.employeeId);
     }
-    if (dto.branchId !== undefined) {
+    if (dto.branchId !== undefined && dto.branchId !== null) {
       await this.ensureBranchExists(dto.branchId);
     }
 
