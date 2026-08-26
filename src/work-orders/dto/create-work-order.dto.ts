@@ -10,14 +10,13 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUUID,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 
 export class WorkOrderServiceLineDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   serviceId: string;
 
@@ -34,7 +33,7 @@ export class WorkOrderServiceLineDto {
 }
 
 export class WorkOrderProductLineDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   productId: string;
 
@@ -51,13 +50,21 @@ export class WorkOrderProductLineDto {
 }
 
 export class CreateWorkOrderDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   clientId: string;
 
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   vehicleId: string;
+
+  @IsOptional()
+  @IsString()
+  employeeId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string | null;
 
   @IsOptional()
   @IsString()

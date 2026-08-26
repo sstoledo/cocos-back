@@ -108,6 +108,24 @@ export class WorkOrderProductResponseDto {
 }
 
 @Exclude()
+export class EmployeeSummaryDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  name: string;
+}
+
+@Exclude()
+export class BranchSummaryDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  name: string;
+}
+
+@Exclude()
 export class WorkOrderResponseDto {
   @Expose()
   id: string;
@@ -133,6 +151,14 @@ export class WorkOrderResponseDto {
 
   @Expose()
   isActive: boolean;
+
+  @Expose()
+  @Type(() => EmployeeSummaryDto)
+  employee: EmployeeSummaryDto | null;
+
+  @Expose()
+  @Type(() => BranchSummaryDto)
+  branch: BranchSummaryDto | null;
 
   @Expose()
   @Type(() => WorkOrderServiceResponseDto)

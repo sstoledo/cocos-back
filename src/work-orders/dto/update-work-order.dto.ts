@@ -4,7 +4,6 @@ import {
   IsArray,
   IsOptional,
   IsString,
-  IsUUID,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -15,12 +14,20 @@ import {
 
 export class UpdateWorkOrderDto {
   @IsOptional()
-  @IsUUID()
+  @IsString()
   clientId?: string;
 
   @IsOptional()
-  @IsUUID()
+  @IsString()
   vehicleId?: string;
+
+  @IsOptional()
+  @IsString()
+  employeeId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string | null;
 
   @IsOptional()
   @IsString()

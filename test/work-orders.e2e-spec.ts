@@ -30,18 +30,22 @@ const receptionUser = {
 };
 const mechanicUser = { id: 'user-mechanic', role: { name: RoleName.Mechanic } };
 
-const CLIENT_ID = '11111111-1111-4111-8111-111111111111';
-const CLIENT_2_ID = '22222222-2222-4222-8222-222222222222';
-const CLIENT_INACTIVE_ID = '33333333-3333-4333-8333-333333333333';
-const VEHICLE_ID = '44444444-4444-4444-8444-444444444444';
-const VEHICLE_2_ID = '55555555-5555-4555-8555-555555555555';
-const SERVICE_ID = '66666666-6666-4666-8666-666666666666';
-const SERVICE_2_ID = '77777777-7777-4777-8777-777777777777';
-const SERVICE_INACTIVE_ID = '88888888-8888-4888-8888-888888888888';
-const MISSING_ID = '99999999-9999-4999-8999-999999999999';
-const PRODUCT_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
-const PRODUCT_2_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
-const PRODUCT_INACTIVE_ID = 'cccccccc-3333-4333-8333-333333333333';
+const CLIENT_ID = 'clclient00000000000000001';
+const CLIENT_2_ID = 'clclient00000000000000002';
+const CLIENT_INACTIVE_ID = 'clclientinactive00000001';
+const VEHICLE_ID = 'clvehicle0000000000000001';
+const VEHICLE_2_ID = 'clvehicle0000000000000002';
+const SERVICE_ID = 'clservice0000000000000001';
+const SERVICE_2_ID = 'clservice0000000000000002';
+const SERVICE_INACTIVE_ID = 'clserviceinactive00000001';
+const MISSING_ID = 'clmissing0000000000000001';
+const PRODUCT_ID = 'clproduct0000000000000001';
+const PRODUCT_2_ID = 'clproduct0000000000000002';
+const PRODUCT_INACTIVE_ID = 'clproductinactive00000001';
+const EMPLOYEE_ID = 'clemployee000000000000001';
+const EMPLOYEE_INACTIVE_ID = 'clemployeeinactive0000001';
+const BRANCH_ID = 'clbranch00000000000000001';
+const BRANCH_INACTIVE_ID = 'clbranchinactive000000001';
 
 describe('Work Orders (e2e)', () => {
   let app: INestApplication;
@@ -132,6 +136,29 @@ describe('Work Orders (e2e)', () => {
     const workOrderServices: Array<Record<string, unknown>> = [];
     const workOrderProducts: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
+    const employees: Array<Record<string, unknown>> = [
+      { id: EMPLOYEE_ID, name: 'Juan Pérez', isActive: true, deletedAt: null },
+      {
+        id: EMPLOYEE_INACTIVE_ID,
+        name: 'Empleado Inactivo',
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    ];
+    const branches: Array<Record<string, unknown>> = [
+      {
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: BRANCH_INACTIVE_ID,
+        name: 'Sucursal Cerrada',
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    ];
     lots = [];
     lotItems = [];
     stockMovements = [];
@@ -151,6 +178,14 @@ describe('Work Orders (e2e)', () => {
           ...line,
           product: products.find((product) => product.id === line.productId),
         }));
+
+    const assignmentFor = (workOrder: Record<string, unknown>) => ({
+      employee:
+        employees.find((employee) => employee.id === workOrder.employeeId) ??
+        null,
+      branch:
+        branches.find((branch) => branch.id === workOrder.branchId) ?? null,
+    });
 
     prisma = {
       onModuleDestroy: jest.fn(),
@@ -199,6 +234,28 @@ describe('Work Orders (e2e)', () => {
           return found ?? null;
         }),
       },
+      branch: {
+        findUnique: jest.fn(({ where }) => {
+          const found = branches.find(
+            (branch) =>
+              branch.id === where.id &&
+              (where.isActive === undefined ||
+                branch.isActive === where.isActive)
+          );
+          return found ?? null;
+        }),
+      },
+      employee: {
+        findUnique: jest.fn(({ where }) => {
+          const found = employees.find(
+            (employee) =>
+              employee.id === where.id &&
+              (where.isActive === undefined ||
+                employee.isActive === where.isActive)
+          );
+          return found ?? null;
+        }),
+      },
       workOrder: {
         create: jest.fn(({ data }) => {
           if (workOrders.some((wo) => wo.orderNumber === data.orderNumber)) {
@@ -216,6 +273,8 @@ describe('Work Orders (e2e)', () => {
             description: data.description ?? null,
             status: data.status ?? 'pending',
             totalAmount: new Prisma.Decimal(data.totalAmount),
+            employeeId: data.employeeId ?? null,
+            branchId: data.branchId ?? null,
             isActive: true,
             deletedAt: null,
             createdAt: new Date(),
@@ -250,6 +309,7 @@ describe('Work Orders (e2e)', () => {
             ...workOrder,
             services: linesFor(id),
             products: productLinesFor(id),
+            ...assignmentFor(workOrder),
           };
         }),
         findMany: jest.fn(({ where, skip, take }) => {
@@ -264,6 +324,7 @@ describe('Work Orders (e2e)', () => {
             ...wo,
             services: linesFor(wo.id as string),
             products: productLinesFor(wo.id as string),
+            ...assignmentFor(wo),
           }));
         }),
         findUnique: jest.fn(({ where }) => {
@@ -283,6 +344,7 @@ describe('Work Orders (e2e)', () => {
             ...found,
             services: linesFor(found.id as string),
             products: productLinesFor(found.id as string),
+            ...assignmentFor(found),
           };
         }),
         update: jest.fn(({ where, data }) => {
@@ -297,6 +359,7 @@ describe('Work Orders (e2e)', () => {
             ...updated,
             services: linesFor(updated.id as string),
             products: productLinesFor(updated.id as string),
+            ...assignmentFor(updated),
           };
         }),
         updateMany: jest.fn(({ where, data }) => {
@@ -1323,6 +1386,221 @@ describe('Work Orders (e2e)', () => {
         expect(response.body.status).toBe('done');
         expect(prisma.stockMovement.create).not.toHaveBeenCalled();
         expect(stockMovements).toHaveLength(0);
+      });
+    });
+  });
+
+  describe('assignment (B7.4)', () => {
+    const createAssigned = () =>
+      admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: EMPLOYEE_ID,
+          branchId: BRANCH_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+    it('creates an order with employee and branch summaries (S1)', async () => {
+      const response = await createAssigned();
+
+      expect(response.status).toBe(201);
+      expect(response.body.employee).toEqual({
+        id: EMPLOYEE_ID,
+        name: 'Juan Pérez',
+      });
+      expect(response.body.branch).toEqual({
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+      });
+    });
+
+    it('creates an unassigned order with null summaries (S2)', async () => {
+      const response = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.employee).toBeNull();
+      expect(response.body.branch).toBeNull();
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('creates an unassigned order when assignment fields are explicit null (S2)', async () => {
+      const response = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: null,
+          branchId: null,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.employee).toBeNull();
+      expect(response.body.branch).toBeNull();
+      expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+      expect(prisma.branch.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 EMPLOYEE_NOT_FOUND for a missing or inactive employee on create (S3)', async () => {
+      const missing = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: MISSING_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+      expect(missing.status).toBe(404);
+      expect(missing.body.errorCode).toBe('EMPLOYEE_NOT_FOUND');
+
+      const inactive = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: EMPLOYEE_INACTIVE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+      expect(inactive.status).toBe(404);
+      expect(inactive.body.errorCode).toBe('EMPLOYEE_NOT_FOUND');
+
+      expect(prisma.workOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 BRANCH_NOT_FOUND for a missing or inactive branch on create (S4)', async () => {
+      const missing = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          branchId: MISSING_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+      expect(missing.status).toBe(404);
+      expect(missing.body.errorCode).toBe('BRANCH_NOT_FOUND');
+
+      const inactive = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          branchId: BRANCH_INACTIVE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+      expect(inactive.status).toBe(404);
+      expect(inactive.body.errorCode).toBe('BRANCH_NOT_FOUND');
+
+      expect(prisma.workOrder.create).not.toHaveBeenCalled();
+    });
+
+    it('assigns, unassigns with explicit null, and leaves assignment unchanged on empty PATCH (S5)', async () => {
+      await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+      const assigned = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({ employeeId: EMPLOYEE_ID, branchId: BRANCH_ID });
+      expect(assigned.status).toBe(200);
+      expect(assigned.body.employee).toEqual({
+        id: EMPLOYEE_ID,
+        name: 'Juan Pérez',
+      });
+      expect(assigned.body.branch).toEqual({
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+      });
+
+      const unassigned = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({ employeeId: null });
+      expect(unassigned.status).toBe(200);
+      expect(unassigned.body.employee).toBeNull();
+      expect(unassigned.body.branch).toEqual({
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+      });
+
+      const untouched = await admin().patch('/api/work-orders/wo-1').send({});
+      expect(untouched.status).toBe(200);
+      expect(untouched.body.employee).toBeNull();
+      expect(untouched.body.branch).toEqual({
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+      });
+
+      const listed = await mechanic().get('/api/work-orders');
+      expect(listed.status).toBe(200);
+      expect(listed.body.data[0].branch).toEqual({
+        id: BRANCH_ID,
+        name: 'Sucursal Central',
+      });
+    });
+
+    it('keeps the assignment intact across the full status chain while consuming stock (S7)', async () => {
+      lots.push({
+        id: 'lot-a',
+        receivedAt: new Date('2026-01-15T00:00:00.000Z'),
+      });
+      lotItems.push({
+        id: 'lot-item-a',
+        lotId: 'lot-a',
+        productId: PRODUCT_ID,
+        remainingQuantity: 2,
+      });
+
+      const created = await admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: EMPLOYEE_ID,
+          branchId: BRANCH_ID,
+          products: [{ productId: PRODUCT_ID, quantity: 2 }],
+        });
+      expect(created.status).toBe(201);
+
+      const expectedAssignment = {
+        employee: { id: EMPLOYEE_ID, name: 'Juan Pérez' },
+        branch: { id: BRANCH_ID, name: 'Sucursal Central' },
+      };
+
+      const inProgress = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(inProgress.status).toBe(200);
+      expect(inProgress.body.employee).toEqual(expectedAssignment.employee);
+      expect(inProgress.body.branch).toEqual(expectedAssignment.branch);
+
+      const done = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'done' });
+      expect(done.status).toBe(200);
+      expect(done.body.status).toBe('done');
+      expect(done.body.employee).toEqual(expectedAssignment.employee);
+      expect(done.body.branch).toEqual(expectedAssignment.branch);
+      expect(
+        lotItems.find((item) => item.id === 'lot-item-a')?.remainingQuantity
+      ).toBe(0);
+      expect(stockMovements).toHaveLength(1);
+      expect(stockMovements[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        workOrderId: 'wo-1',
+        type: 'service_usage',
+        quantity: -2,
       });
     });
   });
