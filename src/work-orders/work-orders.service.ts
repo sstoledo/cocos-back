@@ -30,6 +30,8 @@ const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
 const ASSIGNMENT_INCLUDE = { employee: true, branch: true } as const;
 
 const WORK_ORDER_INCLUDE = {
+  client: true,
+  vehicle: true,
   services: { include: { service: true } },
   products: { include: { product: true } },
   ...ASSIGNMENT_INCLUDE,
@@ -594,6 +596,8 @@ export class WorkOrdersService {
     deletedAt: Date | null;
     employee?: { id: string; name: string } | null;
     branch?: { id: string; name: string } | null;
+    client?: { id: string; name: string };
+    vehicle?: { id: string; plate: string; brand: string; model: string };
     services?: Array<{
       id: string;
       serviceId: string;
@@ -674,6 +678,17 @@ export class WorkOrdersService {
         branch: workOrder.branch
           ? { id: workOrder.branch.id, name: workOrder.branch.name }
           : null,
+        client: workOrder.client
+          ? { id: workOrder.client.id, name: workOrder.client.name }
+          : undefined,
+        vehicle: workOrder.vehicle
+          ? {
+              id: workOrder.vehicle.id,
+              plate: workOrder.vehicle.plate,
+              brand: workOrder.vehicle.brand,
+              model: workOrder.vehicle.model,
+            }
+          : undefined,
         services: services ?? [],
         products: products ?? [],
       },

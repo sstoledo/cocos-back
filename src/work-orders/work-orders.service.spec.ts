@@ -124,6 +124,20 @@ describe('WorkOrdersService', () => {
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
+  const clientRecord = {
+    id: 'client-1',
+    name: 'María García',
+    phone: null,
+    email: null,
+    address: null,
+    identification: null,
+    identificationType: null,
+    isActive: true,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  };
+
   const createPrismaError = (code: string) =>
     new Prisma.PrismaClientKnownRequestError('constraint', {
       code,
@@ -1020,6 +1034,8 @@ describe('WorkOrdersService', () => {
         skip: 0,
         take: 10,
         include: {
+          client: true,
+          vehicle: true,
           services: { include: { service: true } },
           products: { include: { product: true } },
           employee: true,
@@ -1053,6 +1069,8 @@ describe('WorkOrdersService', () => {
         skip: 0,
         take: 10,
         include: {
+          client: true,
+          vehicle: true,
           services: { include: { service: true } },
           products: { include: { product: true } },
           employee: true,
@@ -1075,6 +1093,8 @@ describe('WorkOrdersService', () => {
       expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
         where: { id: 'wo-1', isActive: true },
         include: {
+          client: true,
+          vehicle: true,
           services: { include: { service: true } },
           products: { include: { product: true } },
           employee: true,
@@ -1100,6 +1120,8 @@ describe('WorkOrdersService', () => {
       expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
         where: { id: 'wo-1', isActive: true },
         include: {
+          client: true,
+          vehicle: true,
           services: { include: { service: true } },
           products: { include: { product: true } },
           employee: true,
@@ -1112,6 +1134,30 @@ describe('WorkOrdersService', () => {
         unitPriceSnapshot: '40.25',
         subtotal: '80.50',
         product: { id: 'prod-1', code: 'OIL-5W30', price: '40.25' },
+      });
+    });
+
+    it('returns client and vehicle summaries on findOne', async () => {
+      const record = {
+        ...workOrderRecord,
+        client: clientRecord,
+        vehicle: vehicleRecord,
+        services: [],
+        products: [],
+      };
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(record);
+
+      const result = await service.findOne('wo-1');
+
+      expect(result.client).toEqual({
+        id: 'client-1',
+        name: 'María García',
+      });
+      expect(result.vehicle).toEqual({
+        id: 'vehicle-1',
+        plate: 'ABC123',
+        brand: 'Toyota',
+        model: 'Corolla',
       });
     });
 
@@ -1136,6 +1182,8 @@ describe('WorkOrdersService', () => {
       expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
         where: { id: 'wo-1', isActive: true },
         include: {
+          client: true,
+          vehicle: true,
           services: { include: { service: true } },
           products: { include: { product: true } },
           employee: true,

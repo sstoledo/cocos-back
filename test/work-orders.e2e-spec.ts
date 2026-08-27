@@ -58,15 +58,41 @@ describe('Work Orders (e2e)', () => {
     jest.clearAllMocks();
 
     const clients: Array<Record<string, unknown>> = [
-      { id: CLIENT_ID, isActive: true, deletedAt: null },
-      { id: CLIENT_2_ID, isActive: true, deletedAt: null },
-      { id: CLIENT_INACTIVE_ID, isActive: false, deletedAt: new Date() },
+      {
+        id: CLIENT_ID,
+        name: 'María García',
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: CLIENT_2_ID,
+        name: 'Carlos López',
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: CLIENT_INACTIVE_ID,
+        name: 'Cliente Inactivo',
+        isActive: false,
+        deletedAt: new Date(),
+      },
     ];
     const vehicles: Array<Record<string, unknown>> = [
-      { id: VEHICLE_ID, clientId: CLIENT_ID, isActive: true, deletedAt: null },
+      {
+        id: VEHICLE_ID,
+        clientId: CLIENT_ID,
+        plate: 'ABC123',
+        brand: 'Toyota',
+        model: 'Corolla',
+        isActive: true,
+        deletedAt: null,
+      },
       {
         id: VEHICLE_2_ID,
         clientId: CLIENT_2_ID,
+        plate: 'XYZ789',
+        brand: 'Ford',
+        model: 'Focus',
         isActive: true,
         deletedAt: null,
       },
@@ -179,12 +205,14 @@ describe('Work Orders (e2e)', () => {
           product: products.find((product) => product.id === line.productId),
         }));
 
-    const assignmentFor = (workOrder: Record<string, unknown>) => ({
+    const relationsFor = (workOrder: Record<string, unknown>) => ({
       employee:
         employees.find((employee) => employee.id === workOrder.employeeId) ??
         null,
       branch:
         branches.find((branch) => branch.id === workOrder.branchId) ?? null,
+      client: clients.find((client) => client.id === workOrder.clientId),
+      vehicle: vehicles.find((vehicle) => vehicle.id === workOrder.vehicleId),
     });
 
     prisma = {
@@ -309,7 +337,7 @@ describe('Work Orders (e2e)', () => {
             ...workOrder,
             services: linesFor(id),
             products: productLinesFor(id),
-            ...assignmentFor(workOrder),
+            ...relationsFor(workOrder),
           };
         }),
         findMany: jest.fn(({ where, skip, take }) => {
@@ -324,7 +352,7 @@ describe('Work Orders (e2e)', () => {
             ...wo,
             services: linesFor(wo.id as string),
             products: productLinesFor(wo.id as string),
-            ...assignmentFor(wo),
+            ...relationsFor(wo),
           }));
         }),
         findUnique: jest.fn(({ where }) => {
@@ -344,7 +372,7 @@ describe('Work Orders (e2e)', () => {
             ...found,
             services: linesFor(found.id as string),
             products: productLinesFor(found.id as string),
-            ...assignmentFor(found),
+            ...relationsFor(found),
           };
         }),
         update: jest.fn(({ where, data }) => {
@@ -359,7 +387,7 @@ describe('Work Orders (e2e)', () => {
             ...updated,
             services: linesFor(updated.id as string),
             products: productLinesFor(updated.id as string),
-            ...assignmentFor(updated),
+            ...relationsFor(updated),
           };
         }),
         updateMany: jest.fn(({ where, data }) => {
@@ -1602,6 +1630,57 @@ describe('Work Orders (e2e)', () => {
         type: 'service_usage',
         quantity: -2,
       });
+    });
+  });
+
+  describe('client/vehicle summaries', () => {
+    const expectedClient = { id: CLIENT_ID, name: 'María García' };
+    const expectedVehicle = {
+      id: VEHICLE_ID,
+      plate: 'ABC123',
+      brand: 'Toyota',
+      model: 'Corolla',
+    };
+
+    it('returns client and vehicle summaries on create, list, detail, update, and delete', async () => {
+      const created = await createWorkOrder(admin());
+      expect(created.status).toBe(201);
+      expect(created.body.client).toEqual(expectedClient);
+      expect(created.body.vehicle).toEqual(expectedVehicle);
+
+      const listed = await mechanic().get('/api/work-orders');
+      expect(listed.status).toBe(200);
+      expect(listed.body.data[0].client).toEqual(expectedClient);
+      expect(listed.body.data[0].vehicle).toEqual(expectedVehicle);
+
+      const detail = await mechanic().get('/api/work-orders/wo-1');
+      expect(detail.status).toBe(200);
+      expect(detail.body.client).toEqual(expectedClient);
+      expect(detail.body.vehicle).toEqual(expectedVehicle);
+
+      const updated = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({ description: 'Updated description' });
+      expect(updated.status).toBe(200);
+      expect(updated.body.client).toEqual(expectedClient);
+      expect(updated.body.vehicle).toEqual(expectedVehicle);
+
+      const removed = await admin().delete('/api/work-orders/wo-1');
+      expect(removed.status).toBe(200);
+      expect(removed.body.client).toEqual(expectedClient);
+      expect(removed.body.vehicle).toEqual(expectedVehicle);
+    });
+
+    it('returns client and vehicle summaries across status transitions', async () => {
+      const created = await createWorkOrder(admin());
+      expect(created.status).toBe(201);
+
+      const inProgress = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(inProgress.status).toBe(200);
+      expect(inProgress.body.client).toEqual(expectedClient);
+      expect(inProgress.body.vehicle).toEqual(expectedVehicle);
     });
   });
 
