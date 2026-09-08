@@ -130,6 +130,7 @@ model Product {
   lotItems          LotItem[]
   stockMovements    StockMovement[]
   workOrderProducts WorkOrderProduct[]
+  saleProducts      SaleProduct[]
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
@@ -166,6 +167,7 @@ model Client {
   deletedAt          DateTime?
   vehicles           Vehicle[]
   workOrders         WorkOrder[]
+  sales              Sale[]
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
@@ -206,6 +208,7 @@ model Service {
   isActive          Boolean            @default(true) @map("is_active")
   deletedAt         DateTime?          @map("deleted_at")
   workOrderServices WorkOrderService[]
+  saleServices      SaleService[]
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
@@ -255,15 +258,17 @@ model StockMovement {
   lotItem     LotItem?          @relation(fields: [lotItemId], references: [id])
   workOrderId String?           @map("work_order_id")
   workOrder   WorkOrder?        @relation(fields: [workOrderId], references: [id])
-  type      StockMovementType
+  saleId      String?           @map("sale_id")
+  sale        Sale?             @relation(fields: [saleId], references: [id])
+  type        StockMovementType
   quantity    Int
   reason      String?
   createdAt   DateTime          @default(now())
 
-
   @@index([productId])
   @@index([lotItemId])
   @@index([workOrderId])
+  @@index([saleId])
   @@map("stock_movements")
 }
 
@@ -272,6 +277,7 @@ enum StockMovementType {
   exit
   adjustment
   service_usage
+  sale
 
   @@map("stock_movement_types")
 }
@@ -359,6 +365,7 @@ model Employee {
   isActive   Boolean     @default(true) @map("is_active")
   deletedAt  DateTime?   @map("deleted_at")
   workOrders WorkOrder[]
+  sales      Sale[]
   createdAt  DateTime    @default(now()) @map("created_at")
   updatedAt  DateTime    @updatedAt @map("updated_at")
 
@@ -374,6 +381,7 @@ model Branch {
   isActive   Boolean     @default(true) @map("is_active")
   deletedAt  DateTime?   @map("deleted_at")
   workOrders WorkOrder[]
+  sales      Sale[]
   createdAt  DateTime    @default(now()) @map("created_at")
   updatedAt  DateTime    @updatedAt @map("updated_at")
 
@@ -389,4 +397,90 @@ model WorkOrderNumberSequence {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("work_order_number_sequences")
+}
+
+enum SaleStatus {
+  completed
+  cancelled
+
+  @@map("sale_status")
+}
+
+enum PaymentMethod {
+  cash
+  card
+  transfer
+
+  @@map("payment_methods")
+}
+
+model Sale {
+  id             String          @id @default(cuid())
+  saleNumber     String          @unique @map("sale_number")
+  clientId       String?         @map("client_id")
+  client         Client?         @relation(fields: [clientId], references: [id])
+  branchId       String?         @map("branch_id")
+  branch         Branch?         @relation(fields: [branchId], references: [id])
+  employeeId     String?         @map("employee_id")
+  employee       Employee?       @relation(fields: [employeeId], references: [id])
+  status         SaleStatus      @default(completed)
+  paymentMethod  PaymentMethod   @map("payment_method")
+  totalAmount    Decimal         @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  isActive       Boolean         @default(true) @map("is_active")
+  deletedAt      DateTime?       @map("deleted_at")
+  products       SaleProduct[]
+  services       SaleService[]
+  stockMovements StockMovement[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([branchId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("sales")
+}
+
+model SaleProduct {
+  id                String   @id @default(cuid())
+  saleId            String   @map("sale_id")
+  sale              Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId         String   @map("product_id")
+  product           Product  @relation(fields: [productId], references: [id])
+  quantity          Int      @default(1)
+  unitPriceSnapshot Decimal  @map("unit_price_snapshot") @db.Decimal(10, 2)
+  subtotal          Decimal  @db.Decimal(10, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([saleId, productId])
+  @@map("sale_products")
+}
+
+model SaleService {
+  id                String   @id @default(cuid())
+  saleId            String   @map("sale_id")
+  sale              Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  serviceId         String   @map("service_id")
+  service           Service  @relation(fields: [serviceId], references: [id])
+  quantity          Int      @default(1)
+  unitPriceSnapshot Decimal  @map("unit_price_snapshot") @db.Decimal(10, 2)
+  subtotal          Decimal  @db.Decimal(10, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([saleId, serviceId])
+  @@map("sale_services")
+}
+
+model SaleNumberSequence {
+  id         String   @id @default(cuid())
+  year       Int      @unique
+  lastNumber Int      @default(0) @map("last_number")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("sale_number_sequences")
 }
