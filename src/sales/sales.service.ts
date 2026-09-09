@@ -5,8 +5,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateSaleDto } from './dto/create-sale.dto';
+import type { ListSalesQueryDto } from './dto/list-sales-query.dto';
+import { SaleResponseDto } from './dto/sale-response.dto';
+
+const SALE_INCLUDE = {
+  client: { select: { id: true, name: true } },
+  branch: { select: { id: true, name: true } },
+  employee: { select: { id: true, name: true } },
+  products: { include: { product: true } },
+  services: { include: { service: true } },
+} as const;
 
 @Injectable()
 export class SalesService {
@@ -102,6 +113,7 @@ export class SalesService {
             })),
           },
         },
+        include: SALE_INCLUDE,
       });
 
       // NOTE: guarded FIFO walk copied verbatim from
@@ -155,8 +167,70 @@ export class SalesService {
         }
       }
 
-      return sale;
+      return this.toResponse(sale);
     });
+  }
+
+  async findAll(queryDto: ListSalesQueryDto) {
+    const {
+      page = 1,
+      limit = 10,
+      from,
+      to,
+      clientId,
+      status,
+      saleNumber,
+    } = queryDto;
+    const where: Prisma.SaleWhereInput = { isActive: true };
+
+    if (from !== undefined || to !== undefined) {
+      where.createdAt = {};
+      if (from !== undefined) {
+        where.createdAt.gte = new Date(from);
+      }
+      if (to !== undefined) {
+        where.createdAt.lte = new Date(to);
+      }
+    }
+    if (clientId !== undefined) {
+      where.clientId = clientId;
+    }
+    if (status !== undefined) {
+      where.status = status;
+    }
+    if (saleNumber !== undefined) {
+      where.saleNumber = { contains: saleNumber, mode: 'insensitive' };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.sale.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: SALE_INCLUDE,
+      }),
+      this.prisma.sale.count({ where }),
+    ]);
+
+    return {
+      data: data.map((sale) => this.toResponse(sale)),
+      meta: { page, limit, total },
+    };
+  }
+
+  async findOne(id: string) {
+    const sale = await this.prisma.sale.findUnique({
+      where: { id, isActive: true },
+      include: SALE_INCLUDE,
+    });
+    if (!sale) {
+      throw new NotFoundException({
+        message: 'Sale not found',
+        errorCode: 'SALE_NOT_FOUND',
+      });
+    }
+    return this.toResponse(sale);
   }
 
   private ensureNoDuplicateLines(ids: string[], field: string): void {
@@ -298,5 +372,109 @@ export class SalesService {
     });
 
     return `VTA-${currentYear}-${sequence.lastNumber.toString().padStart(6, '0')}`;
+  }
+
+  private toResponse(sale: {
+    id: string;
+    saleNumber: string;
+    clientId: string | null;
+    branchId: string | null;
+    employeeId: string | null;
+    status: string;
+    paymentMethod: string;
+    totalAmount: Prisma.Decimal;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    client?: { id: string; name: string } | null;
+    branch?: { id: string; name: string } | null;
+    employee?: { id: string; name: string } | null;
+    products?: Array<{
+      id: string;
+      productId: string;
+      quantity: number;
+      unitPriceSnapshot: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+      createdAt: Date;
+      updatedAt: Date;
+      product: {
+        id: string;
+        code: string;
+        name: string;
+        description: string | null;
+        price: Prisma.Decimal;
+      };
+    }>;
+    services?: Array<{
+      id: string;
+      serviceId: string;
+      quantity: number;
+      unitPriceSnapshot: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+      createdAt: Date;
+      updatedAt: Date;
+      service: {
+        id: string;
+        code: string;
+        name: string;
+        description: string | null;
+        price: Prisma.Decimal;
+      };
+    }>;
+  }): SaleResponseDto {
+    const products = sale.products?.map((p) => ({
+      id: p.id,
+      productId: p.productId,
+      quantity: p.quantity,
+      unitPriceSnapshot: Number(p.unitPriceSnapshot).toFixed(2),
+      subtotal: Number(p.subtotal).toFixed(2),
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      product: {
+        id: p.product.id,
+        code: p.product.code,
+        name: p.product.name,
+        description: p.product.description,
+        price: Number(p.product.price).toFixed(2),
+      },
+    }));
+
+    const services = sale.services?.map((s) => ({
+      id: s.id,
+      serviceId: s.serviceId,
+      quantity: s.quantity,
+      unitPriceSnapshot: Number(s.unitPriceSnapshot).toFixed(2),
+      subtotal: Number(s.subtotal).toFixed(2),
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      service: {
+        id: s.service.id,
+        code: s.service.code,
+        name: s.service.name,
+        description: s.service.description,
+        price: Number(s.service.price).toFixed(2),
+      },
+    }));
+
+    return plainToInstance(
+      SaleResponseDto,
+      {
+        ...sale,
+        totalAmount: Number(sale.totalAmount).toFixed(2),
+        client: sale.client
+          ? { id: sale.client.id, name: sale.client.name }
+          : null,
+        branch: sale.branch
+          ? { id: sale.branch.id, name: sale.branch.name }
+          : null,
+        employee: sale.employee
+          ? { id: sale.employee.id, name: sale.employee.name }
+          : null,
+        products: products ?? [],
+        services: services ?? [],
+      },
+      { excludeExtraneousValues: true }
+    );
   }
 }

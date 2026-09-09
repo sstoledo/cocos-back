@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { PaymentMethod, Prisma } from '@prisma/client';
+import { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CreateSaleDto } from './dto/create-sale.dto';
 import { SalesService } from './sales.service';
@@ -63,7 +63,12 @@ describe('SalesService', () => {
       },
       stockMovement: { create: jest.fn() },
       saleNumberSequence: { upsert: jest.fn() },
-      sale: { create: jest.fn() },
+      sale: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(),
+      },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
     (prisma.$transaction as jest.Mock).mockImplementation(
@@ -417,6 +422,133 @@ describe('SalesService', () => {
       expect(prisma.stockMovement.create).not.toHaveBeenCalled();
       // sale.create runs before the FIFO walk (stockMovement.saleId FK);
       // atomicity is guaranteed by the $transaction rollback on throw.
+    });
+  });
+
+  describe('findAll', () => {
+    it('returns paginated active sales mapped through the response DTO (S10)', async () => {
+      const base = {
+        branchId: null,
+        employeeId: null,
+        status: 'completed',
+        paymentMethod: 'cash',
+        isActive: true,
+        deletedAt: null,
+        createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+      };
+      (prisma.sale.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'sale-1',
+          saleNumber: 'VTA-2026-000001',
+          clientId: 'client-1',
+          totalAmount: new Prisma.Decimal(50),
+          ...base,
+        },
+        {
+          id: 'sale-2',
+          saleNumber: 'VTA-2026-000002',
+          clientId: 'client-2',
+          totalAmount: new Prisma.Decimal(30),
+          ...base,
+        },
+      ]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(2);
+
+      const result = await service.findAll({ page: 1, limit: 10 });
+
+      expect(prisma.sale.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { isActive: true },
+          orderBy: { createdAt: 'desc' },
+          skip: 0,
+          take: 10,
+        })
+      );
+      expect(prisma.sale.count).toHaveBeenCalledWith({
+        where: { isActive: true },
+      });
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].totalAmount).toBe('50.00');
+      expect(result.data[0].products).toEqual([]);
+      expect(result.data[0].client).toBeNull();
+    });
+
+    it('applies clientId, status, saleNumber contains-insensitive and date range filters', async () => {
+      (prisma.sale.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({
+        page: 2,
+        limit: 5,
+        clientId: 'client-1',
+        status: SaleStatus.completed,
+        saleNumber: 'vta-2026',
+        from: '2026-01-01',
+        to: '2026-12-31',
+      });
+
+      const findManyArgs = (prisma.sale.findMany as jest.Mock).mock.calls[0][0];
+      expect(findManyArgs).toMatchObject({
+        where: {
+          isActive: true,
+          clientId: 'client-1',
+          status: SaleStatus.completed,
+          saleNumber: { contains: 'vta-2026', mode: 'insensitive' },
+          createdAt: {
+            gte: new Date('2026-01-01'),
+            lte: new Date('2026-12-31'),
+          },
+        },
+        skip: 5,
+        take: 5,
+      });
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns the sale through the response DTO', async () => {
+      (prisma.sale.findUnique as jest.Mock).mockResolvedValue({
+        id: 'sale-1',
+        saleNumber: 'VTA-2026-000001',
+        clientId: 'client-1',
+        branchId: null,
+        employeeId: null,
+        status: 'completed',
+        paymentMethod: 'cash',
+        totalAmount: new Prisma.Decimal(50),
+        isActive: true,
+        deletedAt: null,
+        createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+        client: { id: 'client-1', name: 'María García' },
+        branch: null,
+        employee: null,
+        products: [],
+        services: [],
+      });
+
+      const result = await service.findOne('sale-1');
+
+      expect(prisma.sale.findUnique).toHaveBeenCalledWith({
+        where: { id: 'sale-1', isActive: true },
+        include: expect.anything(),
+      });
+      expect(result.id).toBe('sale-1');
+      expect(result.totalAmount).toBe('50.00');
+      expect(result.client).toEqual({ id: 'client-1', name: 'María García' });
+    });
+
+    it('throws 404 SALE_NOT_FOUND when the sale is missing or inactive', async () => {
+      (prisma.sale.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.findOne('sale-x')).rejects.toMatchObject({
+        response: { errorCode: 'SALE_NOT_FOUND' },
+      });
+      await expect(service.findOne('sale-x')).rejects.toThrow(
+        NotFoundException
+      );
     });
   });
 });
