@@ -9,6 +9,7 @@ import { LotsModule } from './lots/lots.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { SalesModule } from './sales/sales.module';
 import { ServicesModule } from './services/services.module';
 import { StockModule } from './stock';
 import { SuppliersModule } from './suppliers/suppliers.module';
@@ -36,6 +37,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     ServicesModule,
     VehiclesModule,
     WorkOrdersModule,
+    SalesModule,
   ],
 })
 export class AppModule {}
