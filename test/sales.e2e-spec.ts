@@ -339,6 +339,15 @@ describe('Sales (e2e)', () => {
             data.remainingQuantity.decrement;
           return { count: 1 };
         }),
+        update: jest.fn(({ where, data }) => {
+          const item = lotItems.find(
+            (candidate) => candidate.id === where.id
+          ) as Record<string, unknown>;
+          item.remainingQuantity =
+            (item.remainingQuantity as number) +
+            data.remainingQuantity.increment;
+          return item;
+        }),
       },
       stockMovement: {
         create: jest.fn(({ data }) => {
@@ -349,6 +358,14 @@ describe('Sales (e2e)', () => {
           };
           stockMovements.push(movement);
           return movement;
+        }),
+        findMany: jest.fn(({ where }) => {
+          return stockMovements.filter(
+            (movement) =>
+              (where.saleId === undefined ||
+                movement.saleId === where.saleId) &&
+              (where.type === undefined || movement.type === where.type)
+          );
         }),
       },
       saleNumberSequence: {
@@ -454,8 +471,20 @@ describe('Sales (e2e)', () => {
             ...found,
             products: productLinesFor(found.id as string),
             services: serviceLinesFor(found.id as string),
+            stockMovements: stockMovements.filter(
+              (movement) => movement.saleId === found.id
+            ),
             ...relationsFor(found),
           };
+        }),
+        updateMany: jest.fn(({ where, data }) => {
+          const found = sales.find(
+            (sale) => sale.id === where.id && sale.status === where.status
+          );
+          if (!found) return { count: 0 };
+          found.status = data.status;
+          found.updatedAt = new Date();
+          return { count: 1 };
         }),
       },
       user: {
@@ -919,6 +948,156 @@ describe('Sales (e2e)', () => {
       const forbidden = await mechanic().get('/api/sales');
       expect(forbidden.status).toBe(403);
       expect(prisma.sale.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /api/sales/:id/cancel', () => {
+    const seedLots = () => {
+      lots.push(
+        { id: 'lot-1', receivedAt: new Date('2026-01-01T00:00:00.000Z') },
+        { id: 'lot-2', receivedAt: new Date('2026-02-01T00:00:00.000Z') },
+        { id: 'lot-3', receivedAt: new Date('2026-09-01T00:00:00.000Z') }
+      );
+      lotItems.push(
+        {
+          id: 'lot-a',
+          lotId: 'lot-1',
+          productId: PRODUCT_ID,
+          remainingQuantity: 3,
+        },
+        {
+          id: 'lot-b',
+          lotId: 'lot-2',
+          productId: PRODUCT_ID,
+          remainingQuantity: 4,
+        },
+        {
+          id: 'lot-c',
+          lotId: 'lot-3',
+          productId: PRODUCT_ID,
+          remainingQuantity: 10,
+        }
+      );
+    };
+
+    const createSale = () =>
+      reception()
+        .post('/api/sales')
+        .send({
+          paymentMethod: 'cash',
+          productLines: [{ productId: PRODUCT_ID, quantity: 5 }],
+        });
+
+    it('restores each consumed lot per slice and writes compensating movements (S12/S17)', async () => {
+      seedLots();
+      const created = await createSale();
+      expect(created.status).toBe(201);
+      const saleId = created.body.id;
+
+      const response = await admin().patch(`/api/sales/${saleId}/cancel`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        id: saleId,
+        status: 'cancelled',
+        saleNumber: created.body.saleNumber,
+        totalAmount: '50.00',
+      });
+      expect(lotItems[0].remainingQuantity).toBe(3);
+      expect(lotItems[1].remainingQuantity).toBe(4);
+      // Newest lot C never participated in the sale: untouched.
+      expect(lotItems[2].remainingQuantity).toBe(10);
+      expect(stockMovements).toHaveLength(4);
+      expect(stockMovements[2]).toMatchObject({
+        lotItemId: 'lot-a',
+        type: 'cancel',
+        quantity: 3,
+        saleId,
+        reason: `Cancel ${created.body.saleNumber}`,
+      });
+      expect(stockMovements[3]).toMatchObject({
+        lotItemId: 'lot-b',
+        type: 'cancel',
+        quantity: 2,
+        saleId,
+        reason: `Cancel ${created.body.saleNumber}`,
+      });
+    });
+
+    it('returns 404 SALE_NOT_FOUND for a missing sale with zero writes (S13)', async () => {
+      const response = await admin().patch('/api/sales/unknown-1/cancel');
+
+      expect(response.status).toBe(404);
+      expect(response.body.errorCode).toBe('SALE_NOT_FOUND');
+      expect(stockMovements).toHaveLength(0);
+    });
+
+    it('returns 409 SALE_ALREADY_CANCELLED on a second cancel without double restoration (S14)', async () => {
+      seedLots();
+      const created = await createSale();
+      const saleId = created.body.id;
+
+      const first = await admin().patch(`/api/sales/${saleId}/cancel`);
+      expect(first.status).toBe(200);
+
+      const second = await admin().patch(`/api/sales/${saleId}/cancel`);
+      expect(second.status).toBe(409);
+      expect(second.body.errorCode).toBe('SALE_ALREADY_CANCELLED');
+      expect(stockMovements).toHaveLength(4);
+      expect(lotItems[0].remainingQuantity).toBe(3);
+      expect(lotItems[1].remainingQuantity).toBe(4);
+    });
+
+    it('returns 401 anonymous, 403 mechanic and 200 reception (S15)', async () => {
+      seedLots();
+      const created = await createSale();
+      const saleId = created.body.id;
+
+      const unauthenticated = await anonymous().patch(
+        `/api/sales/${saleId}/cancel`
+      );
+      expect(unauthenticated.status).toBe(401);
+
+      const forbidden = await mechanic().patch(`/api/sales/${saleId}/cancel`);
+      expect(forbidden.status).toBe(403);
+
+      const allowed = await reception().patch(`/api/sales/${saleId}/cancel`);
+      expect(allowed.status).toBe(200);
+      expect(allowed.body.status).toBe('cancelled');
+    });
+
+    it('preserves the audit trail: detail, cancelled list and completed exclusion (S16)', async () => {
+      seedLots();
+      const created = await createSale();
+      const saleId = created.body.id;
+      await admin().patch(`/api/sales/${saleId}/cancel`);
+
+      const detail = await admin().get(`/api/sales/${saleId}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body).toMatchObject({
+        id: saleId,
+        saleNumber: created.body.saleNumber,
+        status: 'cancelled',
+        totalAmount: '50.00',
+      });
+      expect(detail.body.products).toHaveLength(1);
+      expect(detail.body.products[0]).toMatchObject({
+        productId: PRODUCT_ID,
+        quantity: 5,
+        subtotal: '50.00',
+      });
+
+      const cancelledList = await admin().get('/api/sales?status=cancelled');
+      expect(cancelledList.status).toBe(200);
+      expect(cancelledList.body.meta.total).toBe(1);
+      expect(cancelledList.body.data[0].id).toBe(saleId);
+
+      const completedList = await admin().get('/api/sales?status=completed');
+      expect(
+        completedList.body.data.some(
+          (sale: { id: string }) => sale.id === saleId
+        )
+      ).toBe(false);
     });
   });
 

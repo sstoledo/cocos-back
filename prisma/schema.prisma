@@ -278,6 +278,7 @@ enum StockMovementType {
   adjustment
   service_usage
   sale
+  cancel
 
   @@map("stock_movement_types")
 }

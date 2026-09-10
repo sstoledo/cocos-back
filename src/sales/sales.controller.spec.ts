@@ -27,6 +27,7 @@ describe('SalesController', () => {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
+      cancelSale: jest.fn(),
     } as unknown as SalesService;
     controller = new SalesController(salesService);
   });
@@ -44,7 +45,7 @@ describe('SalesController', () => {
     const reflector = new Reflector();
     const expectedRoles = [RoleName.Admin, RoleName.Reception];
 
-    it.each(['create', 'findAll', 'findOne'] as const)(
+    it.each(['create', 'findAll', 'findOne', 'cancelSale'] as const)(
       'restricts %s to Admin and Reception (Mechanic 403)',
       (method) => {
         const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
@@ -97,6 +98,20 @@ describe('SalesController', () => {
 
       expect(salesService.findOne).toHaveBeenCalledWith('sale-1');
       expect(result).toEqual({ id: 'sale-1' });
+    });
+  });
+
+  describe('cancelSale', () => {
+    it('delegates to the service with the id', async () => {
+      (salesService.cancelSale as jest.Mock).mockResolvedValue({
+        id: 'sale-1',
+        status: 'cancelled',
+      });
+
+      const result = await controller.cancelSale('sale-1');
+
+      expect(salesService.cancelSale).toHaveBeenCalledWith('sale-1');
+      expect(result).toEqual({ id: 'sale-1', status: 'cancelled' });
     });
   });
 });

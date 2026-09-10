@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -34,5 +35,11 @@ export class SalesController {
   @Roles(RoleName.Admin, RoleName.Reception)
   findOne(@Param('id') id: string) {
     return this.salesService.findOne(id);
+  }
+
+  @Patch(':id/cancel')
+  @Roles(RoleName.Admin, RoleName.Reception)
+  cancelSale(@Param('id') id: string) {
+    return this.salesService.cancelSale(id);
   }
 }
