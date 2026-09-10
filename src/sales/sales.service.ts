@@ -171,6 +171,79 @@ export class SalesService {
     });
   }
 
+  async cancelSale(id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findUnique({
+        where: { id, isActive: true },
+        include: { stockMovements: true },
+      });
+
+      if (!sale) {
+        throw new NotFoundException({
+          message: 'Sale not found',
+          errorCode: 'SALE_NOT_FOUND',
+        });
+      }
+
+      if (sale.status !== 'completed') {
+        throw new ConflictException({
+          message: 'Sale is already cancelled',
+          errorCode: 'SALE_ALREADY_CANCELLED',
+        });
+      }
+
+      // Guarded flip-first: a concurrent cancel loses here (count === 0)
+      // and rolls back before any stock restoration runs.
+      const guard = await tx.sale.updateMany({
+        where: { id, status: 'completed' },
+        data: { status: 'cancelled' },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: 'Sale is already cancelled',
+          errorCode: 'SALE_ALREADY_CANCELLED',
+        });
+      }
+
+      for (const movement of sale.stockMovements) {
+        if (movement.type !== 'sale') {
+          continue;
+        }
+
+        await tx.lotItem.update({
+          where: { id: movement.lotItemId ?? '' },
+          data: { remainingQuantity: { increment: -movement.quantity } },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: movement.productId,
+            lotItemId: movement.lotItemId,
+            saleId: id,
+            type: 'cancel',
+            quantity: -movement.quantity,
+            reason: `Cancel ${sale.saleNumber}`,
+          },
+        });
+      }
+
+      const refreshed = await tx.sale.findUnique({
+        where: { id, isActive: true },
+        include: SALE_INCLUDE,
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Sale not found',
+          errorCode: 'SALE_NOT_FOUND',
+        });
+      }
+
+      return this.toResponse(refreshed);
+    });
+  }
+
   async findAll(queryDto: ListSalesQueryDto) {
     const {
       page = 1,

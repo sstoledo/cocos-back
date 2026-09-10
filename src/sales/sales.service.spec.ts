@@ -60,6 +60,7 @@ describe('SalesService', () => {
         aggregate: jest.fn(),
         findMany: jest.fn(),
         updateMany: jest.fn(),
+        update: jest.fn(),
       },
       stockMovement: { create: jest.fn() },
       saleNumberSequence: { upsert: jest.fn() },
@@ -68,6 +69,7 @@ describe('SalesService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
+        updateMany: jest.fn(),
       },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
@@ -422,6 +424,203 @@ describe('SalesService', () => {
       expect(prisma.stockMovement.create).not.toHaveBeenCalled();
       // sale.create runs before the FIFO walk (stockMovement.saleId FK);
       // atomicity is guaranteed by the $transaction rollback on throw.
+    });
+  });
+
+  describe('cancelSale', () => {
+    const baseSale = {
+      id: 'sale-1',
+      saleNumber: 'VTA-2026-000042',
+      clientId: 'client-1',
+      branchId: null,
+      employeeId: null,
+      paymentMethod: 'cash',
+      totalAmount: new Prisma.Decimal(50),
+      isActive: true,
+      deletedAt: null,
+      createdAt: new Date('2026-06-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+      client: { id: 'client-1', name: 'María García' },
+      branch: null,
+      employee: null,
+      products: [],
+      services: [],
+    };
+
+    const sliceA = {
+      id: 'sm-1',
+      productId: 'prod-1',
+      lotItemId: 'lot-a',
+      saleId: 'sale-1',
+      type: 'sale',
+      quantity: -3,
+      reason: 'Sale VTA-2026-000042',
+    };
+    const sliceB = {
+      id: 'sm-2',
+      productId: 'prod-1',
+      lotItemId: 'lot-b',
+      saleId: 'sale-1',
+      type: 'sale',
+      quantity: -2,
+      reason: 'Sale VTA-2026-000042',
+    };
+    const newestLotC = {
+      id: 'sm-3',
+      productId: 'prod-1',
+      lotItemId: 'lot-c',
+      saleId: 'sale-1',
+      type: 'entry',
+      quantity: 10,
+      reason: null,
+    };
+
+    const completedSaleWithSlices = {
+      ...baseSale,
+      status: 'completed',
+      stockMovements: [sliceA, sliceB, newestLotC],
+    };
+
+    const mockFindThenReRead = (
+      found: Record<string, unknown> | null,
+      refreshed: Record<string, unknown> | null
+    ) => {
+      (prisma.sale.findUnique as jest.Mock).mockImplementation(
+        ({ include }: { include?: Record<string, unknown> }) =>
+          include?.stockMovements ? found : refreshed
+      );
+    };
+
+    beforeEach(() => {
+      (prisma.sale.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+    });
+
+    it('restores stock per FIFO slice and writes one compensating movement per slice (S12)', async () => {
+      mockFindThenReRead(completedSaleWithSlices, {
+        ...baseSale,
+        status: 'cancelled',
+      });
+
+      const result = await service.cancelSale('sale-1');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.sale.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sale-1', status: 'completed' },
+        data: { status: 'cancelled' },
+      });
+      expect(prisma.lotItem.update).toHaveBeenCalledTimes(2);
+      expect(prisma.lotItem.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'lot-a' },
+        data: { remainingQuantity: { increment: 3 } },
+      });
+      expect(prisma.lotItem.update).toHaveBeenNthCalledWith(2, {
+        where: { id: 'lot-b' },
+        data: { remainingQuantity: { increment: 2 } },
+      });
+      expect(prisma.stockMovement.create).toHaveBeenCalledTimes(2);
+      expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(1, {
+        data: {
+          productId: 'prod-1',
+          lotItemId: 'lot-a',
+          saleId: 'sale-1',
+          type: 'cancel',
+          quantity: 3,
+          reason: 'Cancel VTA-2026-000042',
+        },
+      });
+      expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(2, {
+        data: expect.objectContaining({
+          lotItemId: 'lot-b',
+          type: 'cancel',
+          quantity: 2,
+          reason: 'Cancel VTA-2026-000042',
+        }),
+      });
+      expect(result.status).toBe('cancelled');
+      expect(result.saleNumber).toBe('VTA-2026-000042');
+      expect(result.totalAmount).toBe('50.00');
+    });
+
+    it('throws 404 SALE_NOT_FOUND for a missing or inactive sale with zero writes (S13)', async () => {
+      mockFindThenReRead(null, null);
+
+      await expect(service.cancelSale('sale-x')).rejects.toMatchObject({
+        response: { errorCode: 'SALE_NOT_FOUND' },
+      });
+      await expect(service.cancelSale('sale-x')).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.sale.updateMany).not.toHaveBeenCalled();
+      expect(prisma.lotItem.update).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('throws 409 SALE_ALREADY_CANCELLED without double restoration (S14)', async () => {
+      mockFindThenReRead(
+        { ...completedSaleWithSlices, status: 'cancelled' },
+        null
+      );
+
+      await expect(service.cancelSale('sale-1')).rejects.toMatchObject({
+        response: { errorCode: 'SALE_ALREADY_CANCELLED' },
+      });
+      await expect(service.cancelSale('sale-1')).rejects.toThrow(
+        ConflictException
+      );
+      expect(prisma.sale.updateMany).not.toHaveBeenCalled();
+      expect(prisma.lotItem.update).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('restores only the consumed slices, leaving newer lots untouched (S17)', async () => {
+      mockFindThenReRead(completedSaleWithSlices, {
+        ...baseSale,
+        status: 'cancelled',
+      });
+
+      await service.cancelSale('sale-1');
+
+      const updatedLotIds = (prisma.lotItem.update as jest.Mock).mock.calls.map(
+        (call: unknown[]) => (call[0] as { where: { id: string } }).where.id
+      );
+      expect(updatedLotIds).toEqual(['lot-a', 'lot-b']);
+      const movementLotIds = (
+        prisma.stockMovement.create as jest.Mock
+      ).mock.calls.map(
+        (call: unknown[]) =>
+          (call[0] as { data: { lotItemId: string } }).data.lotItemId
+      );
+      expect(movementLotIds).toEqual(['lot-a', 'lot-b']);
+    });
+
+    it('aborts with 409 when the guarded flip matches zero rows (S18)', async () => {
+      mockFindThenReRead(completedSaleWithSlices, null);
+      (prisma.sale.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      await expect(service.cancelSale('sale-1')).rejects.toMatchObject({
+        response: { errorCode: 'SALE_ALREADY_CANCELLED' },
+      });
+      expect(prisma.lotItem.update).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('cancels a services-only sale with zero movements and keeps the DTO shape', async () => {
+      mockFindThenReRead(
+        { ...baseSale, status: 'completed', stockMovements: [] },
+        { ...baseSale, status: 'cancelled' }
+      );
+
+      const result = await service.cancelSale('sale-1');
+
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+      expect(prisma.lotItem.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        id: 'sale-1',
+        saleNumber: 'VTA-2026-000042',
+        status: 'cancelled',
+        totalAmount: '50.00',
+        client: { id: 'client-1', name: 'María García' },
+      });
     });
   });
 
