@@ -1,7 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, PurchaseOrderStatus } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
+import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrdersService } from './purchase-orders.service';
 
 describe('PurchaseOrdersService', () => {
@@ -60,6 +65,11 @@ describe('PurchaseOrdersService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      purchaseOrderLine: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
       },
       lot: { findMany: jest.fn() },
       $transaction: jest.fn(),
@@ -73,6 +83,9 @@ describe('PurchaseOrdersService', () => {
       id: 'seq-1',
       year: 2026,
       lastNumber: 7,
+    });
+    (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
+      count: 1,
     });
     (prisma.purchaseOrder.create as jest.Mock).mockImplementation(
       (args: { data: Record<string, unknown> }) => ({
@@ -347,6 +360,240 @@ describe('PurchaseOrdersService', () => {
 
       await expect(service.findOne('po-x')).rejects.toThrow(NotFoundException);
       await expect(service.findOne('po-x')).rejects.toMatchObject({
+        response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
+      });
+    });
+  });
+
+  describe('updateDraft (S6)', () => {
+    const updatedPoRecord = {
+      ...poRecord,
+      estimatedTotal: new Prisma.Decimal(75),
+      lines: [
+        {
+          ...lineRecord,
+          id: 'line-new-1',
+          quantityOrdered: 15,
+          quantityReceived: 0,
+          estimatedCostPrice: new Prisma.Decimal(5),
+        },
+      ],
+    };
+
+    const updateDto: UpdatePurchaseOrderDto = {
+      lines: [
+        {
+          productId: 'prod-1',
+          quantityOrdered: 15,
+          estimatedCostPrice: '5.00',
+        },
+      ],
+    };
+
+    it('full-replaces lines in one tx and recomputes the total (S6)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(poRecord)
+        .mockResolvedValueOnce(updatedPoRecord);
+
+      const result = await service.updateDraft('po-1', updateDto);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+        where: { id: 'po-1', isActive: true, status: 'draft' },
+        data: { estimatedTotal: expect.anything() },
+      });
+      const guardArgs = (prisma.purchaseOrder.updateMany as jest.Mock).mock
+        .calls[0][0];
+      expect(Number(guardArgs.data.estimatedTotal).toFixed(2)).toBe('75.00');
+
+      expect(prisma.purchaseOrderLine.deleteMany).toHaveBeenCalledWith({
+        where: { purchaseOrderId: 'po-1' },
+      });
+      expect(prisma.purchaseOrderLine.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            purchaseOrderId: 'po-1',
+            productId: 'prod-1',
+            quantityOrdered: 15,
+          }),
+        ],
+      });
+      const deleteOrder = (prisma.purchaseOrderLine.deleteMany as jest.Mock)
+        .mock.invocationCallOrder[0];
+      const createOrder = (prisma.purchaseOrderLine.createMany as jest.Mock)
+        .mock.invocationCallOrder[0];
+      expect(deleteOrder).toBeLessThan(createOrder);
+
+      const lineArgs = (prisma.purchaseOrderLine.createMany as jest.Mock).mock
+        .calls[0][0];
+      expect(lineArgs.data[0]).not.toHaveProperty('quantityReceived');
+
+      expect(result.estimatedTotal).toBe('75.00');
+      expect(result.lines).toHaveLength(1);
+      expect(result.lines[0]).toMatchObject({
+        productId: 'prod-1',
+        quantityOrdered: 15,
+        quantityReceived: 0,
+      });
+    });
+
+    it('throws 409 PO_NOT_DRAFT when the PO is not draft, with zero writes (S6)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...poRecord,
+        status: PurchaseOrderStatus.ordered,
+      });
+      (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(service.updateDraft('po-1', updateDto)).rejects.toThrow(
+        ConflictException
+      );
+      await expect(
+        service.updateDraft('po-1', updateDto)
+      ).rejects.toMatchObject({ response: { errorCode: 'PO_NOT_DRAFT' } });
+      expect(prisma.purchaseOrderLine.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.purchaseOrderLine.createMany).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 PURCHASE_ORDER_NOT_FOUND for a missing PO (S6)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.updateDraft('po-x', updateDto)
+      ).rejects.toMatchObject({
+        response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
+      });
+      expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
+      expect(prisma.purchaseOrderLine.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects empty lines, duplicates and unknown products (S6)', async () => {
+      await expect(
+        service.updateDraft('po-1', { lines: [] })
+      ).rejects.toMatchObject({ response: { errorCode: 'PO_EMPTY_LINES' } });
+
+      await expect(
+        service.updateDraft('po-1', {
+          lines: [
+            {
+              productId: 'prod-1',
+              quantityOrdered: 1,
+              estimatedCostPrice: '5.00',
+            },
+            {
+              productId: 'prod-1',
+              quantityOrdered: 2,
+              estimatedCostPrice: '6.00',
+            },
+          ],
+        })
+      ).rejects.toMatchObject({ response: { errorCode: 'PO_DUPLICATE_LINE' } });
+
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue(null);
+      await expect(
+        service.updateDraft('po-1', updateDto)
+      ).rejects.toMatchObject({ response: { errorCode: 'PRODUCT_NOT_FOUND' } });
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('order (S7)', () => {
+    it('flips draft to ordered via guarded updateMany (S7)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(poRecord)
+        .mockResolvedValueOnce({ ...poRecord, status: 'ordered' });
+
+      const result = await service.order('po-1');
+
+      expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+        where: { id: 'po-1', status: 'draft' },
+        data: { status: 'ordered' },
+      });
+      expect(result.status).toBe('ordered');
+    });
+
+    it.each([
+      PurchaseOrderStatus.ordered,
+      PurchaseOrderStatus.partially_received,
+      PurchaseOrderStatus.received,
+      PurchaseOrderStatus.cancelled,
+    ])(
+      'throws 409 PO_ALREADY_ORDERED when the PO is %s (S7)',
+      async (status) => {
+        (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+          ...poRecord,
+          status,
+        });
+        (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 0,
+        });
+
+        await expect(service.order('po-1')).rejects.toThrow(ConflictException);
+        await expect(service.order('po-1')).rejects.toMatchObject({
+          response: { errorCode: 'PO_ALREADY_ORDERED' },
+        });
+      }
+    );
+
+    it('throws 404 PURCHASE_ORDER_NOT_FOUND for a missing PO (S7)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.order('po-x')).rejects.toMatchObject({
+        response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
+      });
+    });
+  });
+
+  describe('cancel (S11)', () => {
+    it.each([PurchaseOrderStatus.draft, PurchaseOrderStatus.ordered])(
+      'flips %s to cancelled with zero stock writes (S11)',
+      async (status) => {
+        (prisma.purchaseOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce({ ...poRecord, status })
+          .mockResolvedValueOnce({ ...poRecord, status: 'cancelled' });
+
+        const result = await service.cancel('po-1');
+
+        expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'po-1',
+            status: { in: ['draft', 'ordered'] },
+          },
+          data: { status: 'cancelled' },
+        });
+        expect(result.status).toBe('cancelled');
+        expect(result.purchaseOrderNumber).toBe('COM-2026-000007');
+      }
+    );
+
+    it.each([
+      PurchaseOrderStatus.partially_received,
+      PurchaseOrderStatus.received,
+      PurchaseOrderStatus.cancelled,
+    ])(
+      'throws 409 PO_CANNOT_CANCEL when the PO is %s (S11)',
+      async (status) => {
+        (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+          ...poRecord,
+          status,
+        });
+        (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 0,
+        });
+
+        await expect(service.cancel('po-1')).rejects.toThrow(ConflictException);
+        await expect(service.cancel('po-1')).rejects.toMatchObject({
+          response: { errorCode: 'PO_CANNOT_CANCEL' },
+        });
+      }
+    );
+
+    it('throws 404 PURCHASE_ORDER_NOT_FOUND for a missing PO (S11)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.cancel('po-x')).rejects.toMatchObject({
         response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
       });
     });

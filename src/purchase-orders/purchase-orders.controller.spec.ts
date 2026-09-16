@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { RoleName } from '@prisma/client';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
+import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import type { PurchaseOrdersService } from './purchase-orders.service';
 
@@ -27,6 +28,9 @@ describe('PurchaseOrdersController', () => {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
+      updateDraft: jest.fn(),
+      order: jest.fn(),
+      cancel: jest.fn(),
     } as unknown as PurchaseOrdersService;
     controller = new PurchaseOrdersController(purchaseOrdersService);
   });
@@ -63,6 +67,17 @@ describe('PurchaseOrdersController', () => {
           PurchaseOrdersController,
         ]);
         expect(roles).toEqual(readRoles);
+      }
+    );
+
+    it.each(['updateDraft', 'order', 'cancel'] as const)(
+      'restricts %s to Admin and Purchasing (S12 partial)',
+      (method) => {
+        const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+          PurchaseOrdersController.prototype[method],
+          PurchaseOrdersController,
+        ]);
+        expect(roles).toEqual([RoleName.Admin, RoleName.Purchasing]);
       }
     );
   });
@@ -118,6 +133,59 @@ describe('PurchaseOrdersController', () => {
 
       expect(purchaseOrdersService.findOne).toHaveBeenCalledWith('po-1');
       expect(result).toEqual({ id: 'po-1' });
+    });
+  });
+
+  describe('updateDraft', () => {
+    it('delegates to the service with the id and DTO', async () => {
+      const dto = {
+        lines: [
+          {
+            productId: 'prod-1',
+            quantityOrdered: 15,
+            estimatedCostPrice: '5.00',
+          },
+        ],
+      } as UpdatePurchaseOrderDto;
+      (purchaseOrdersService.updateDraft as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+      });
+
+      const result = await controller.updateDraft('po-1', dto);
+
+      expect(purchaseOrdersService.updateDraft).toHaveBeenCalledWith(
+        'po-1',
+        dto
+      );
+      expect(result).toEqual({ id: 'po-1' });
+    });
+  });
+
+  describe('order', () => {
+    it('delegates to the service with the id', async () => {
+      (purchaseOrdersService.order as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+        status: 'ordered',
+      });
+
+      const result = await controller.order('po-1');
+
+      expect(purchaseOrdersService.order).toHaveBeenCalledWith('po-1');
+      expect(result).toEqual({ id: 'po-1', status: 'ordered' });
+    });
+  });
+
+  describe('cancel', () => {
+    it('delegates to the service with the id', async () => {
+      (purchaseOrdersService.cancel as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+        status: 'cancelled',
+      });
+
+      const result = await controller.cancel('po-1');
+
+      expect(purchaseOrdersService.cancel).toHaveBeenCalledWith('po-1');
+      expect(result).toEqual({ id: 'po-1', status: 'cancelled' });
     });
   });
 });
