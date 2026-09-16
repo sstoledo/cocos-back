@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
 import { PurchaseOrderResponseDto } from './dto/purchase-order-response.dto';
+import type { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 
 const PO_INCLUDE = {
@@ -289,6 +290,157 @@ export class PurchaseOrdersService {
       }
 
       return this.toResponse(refreshed);
+    });
+  }
+
+  async receive(id: string, dto: ReceivePurchaseOrderDto) {
+    const lines = dto.lines ?? [];
+
+    if (lines.length === 0) {
+      throw new BadRequestException({
+        message: 'Purchase order must include at least one line',
+        errorCode: 'PO_EMPTY_LINES',
+      });
+    }
+
+    const lineIds = lines.map((line) => line.lineId);
+    if (new Set(lineIds).size !== lineIds.length) {
+      throw new BadRequestException({
+        message: 'Duplicate lineId entries are not allowed',
+        errorCode: 'PO_DUPLICATE_LINE',
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const purchaseOrder = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+        include: { lines: true },
+      });
+
+      if (!purchaseOrder) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      // Receivability guard: validates the status AND takes the PO row lock
+      // for the whole transaction, serializing concurrent receives; the
+      // incremented receiptCount yields the deterministic lot suffix R{n}.
+      const guard = await tx.purchaseOrder.updateMany({
+        where: {
+          id,
+          status: { in: ['ordered', 'partially_received'] },
+        },
+        data: { receiptCount: { increment: 1 } },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: 'Purchase order is not in a receivable status',
+          errorCode: 'PO_NOT_RECEIVABLE',
+        });
+      }
+
+      const poLines = new Map(
+        purchaseOrder.lines.map((line) => [line.id, line])
+      );
+
+      const resolvedLines = lines.map((line) => {
+        const poLine = poLines.get(line.lineId);
+        if (!poLine) {
+          throw new NotFoundException({
+            message: 'Purchase order line not found',
+            errorCode: 'PO_LINE_NOT_FOUND',
+          });
+        }
+        return { line, poLine };
+      });
+
+      const lotNumber = `${purchaseOrder.purchaseOrderNumber}-R${purchaseOrder.receiptCount + 1}`;
+
+      // Overshoot guards BEFORE any stock write: quantityOrdered is immutable
+      // post-draft, so the RHS is a constant predicate that PG re-checks after
+      // the row-lock wait — atomic under READ COMMITTED. A losing concurrent
+      // receive rolls back before the lot/item/movement rows are created.
+      for (const { line, poLine } of resolvedLines) {
+        const increment = await tx.purchaseOrderLine.updateMany({
+          where: {
+            id: line.lineId,
+            quantityReceived: {
+              lte: poLine.quantityOrdered - line.receivedQty,
+            },
+          },
+          data: { quantityReceived: { increment: line.receivedQty } },
+        });
+
+        if (increment.count === 0) {
+          throw new ConflictException({
+            message: 'Received quantity exceeds the ordered quantity',
+            errorCode: 'PO_RECEIVE_OVERSHOOT',
+          });
+        }
+      }
+
+      const lot = await tx.lot.create({
+        data: {
+          lotNumber,
+          supplierId: purchaseOrder.supplierId,
+          purchaseOrderId: id,
+        },
+      });
+
+      for (const { line, poLine } of resolvedLines) {
+        const lotItem = await tx.lotItem.create({
+          data: {
+            lotId: lot.id,
+            productId: poLine.productId,
+            quantity: line.receivedQty,
+            remainingQuantity: line.receivedQty,
+            costPrice: new Prisma.Decimal(line.actualCostPrice),
+            expirationDate: new Date(line.expirationDate),
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: poLine.productId,
+            lotItemId: lotItem.id,
+            purchaseOrderId: id,
+            type: 'entry',
+            quantity: line.receivedQty,
+            reason: `Receive ${purchaseOrder.purchaseOrderNumber} (${lotNumber})`,
+          },
+        });
+      }
+
+      const allComplete = purchaseOrder.lines.every((poLine) => {
+        const incoming =
+          lines.find((line) => line.lineId === poLine.id)?.receivedQty ?? 0;
+        return poLine.quantityReceived + incoming >= poLine.quantityOrdered;
+      });
+
+      await tx.purchaseOrder.updateMany({
+        where: {
+          id,
+          status: { in: ['ordered', 'partially_received'] },
+        },
+        data: { status: allComplete ? 'received' : 'partially_received' },
+      });
+
+      const refreshed = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+        include: PO_INCLUDE,
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      return { ...this.toResponse(refreshed), lotIds: [lot.id] };
     });
   }
 

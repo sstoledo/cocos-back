@@ -6,6 +6,7 @@ import {
 import { Prisma, PurchaseOrderStatus } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
+import type { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrdersService } from './purchase-orders.service';
 
@@ -70,8 +71,11 @@ describe('PurchaseOrdersService', () => {
       purchaseOrderLine: {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
+        updateMany: jest.fn(),
       },
-      lot: { findMany: jest.fn() },
+      lot: { findMany: jest.fn(), create: jest.fn() },
+      lotItem: { create: jest.fn() },
+      stockMovement: { create: jest.fn() },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
     (prisma.$transaction as jest.Mock).mockImplementation(
@@ -87,6 +91,11 @@ describe('PurchaseOrdersService', () => {
     (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
       count: 1,
     });
+    (prisma.purchaseOrderLine.updateMany as jest.Mock).mockResolvedValue({
+      count: 1,
+    });
+    (prisma.lot.create as jest.Mock).mockResolvedValue({ id: 'lot-1' });
+    (prisma.lotItem.create as jest.Mock).mockResolvedValue({ id: 'item-1' });
     (prisma.purchaseOrder.create as jest.Mock).mockImplementation(
       (args: { data: Record<string, unknown> }) => ({
         ...poRecord,
@@ -596,6 +605,264 @@ describe('PurchaseOrdersService', () => {
       await expect(service.cancel('po-x')).rejects.toMatchObject({
         response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
       });
+    });
+  });
+
+  describe('receive (S8/S9/S10/S13)', () => {
+    const expiration = '2027-06-01T00:00:00.000Z';
+
+    const orderedPo = {
+      ...poRecord,
+      status: PurchaseOrderStatus.ordered,
+      receiptCount: 0,
+    };
+
+    const lineWithReceived = (quantityReceived: number) => ({
+      ...lineRecord,
+      quantityOrdered: 10,
+      quantityReceived,
+    });
+
+    const receiveDto = (receivedQty: number): ReceivePurchaseOrderDto => ({
+      lines: [
+        {
+          lineId: 'line-1',
+          receivedQty,
+          expirationDate: expiration,
+          actualCostPrice: '5.50',
+        },
+      ],
+    });
+
+    it('receives a full line in one tx: PO lock, guarded increment, lot, item, entry movement, flip (S8)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(orderedPo)
+        .mockResolvedValueOnce({ ...orderedPo, status: 'received' });
+
+      const result = await service.receive('po-1', receiveDto(10));
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      // Receivability guard takes the PO row lock and bumps receiptCount
+      expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'po-1',
+          status: { in: ['ordered', 'partially_received'] },
+        },
+        data: { receiptCount: { increment: 1 } },
+      });
+      // Overshoot guard: quantityOrdered is immutable, RHS is constant
+      expect(prisma.purchaseOrderLine.updateMany).toHaveBeenCalledWith({
+        where: { id: 'line-1', quantityReceived: { lte: 0 } },
+        data: { quantityReceived: { increment: 10 } },
+      });
+      expect(prisma.lot.create).toHaveBeenCalledWith({
+        data: {
+          lotNumber: 'COM-2026-000007-R1',
+          supplierId: 'sup-1',
+          purchaseOrderId: 'po-1',
+        },
+      });
+      expect(prisma.lotItem.create).toHaveBeenCalledWith({
+        data: {
+          lotId: 'lot-1',
+          productId: 'prod-1',
+          quantity: 10,
+          remainingQuantity: 10,
+          costPrice: expect.anything(),
+          expirationDate: new Date(expiration),
+        },
+      });
+      const itemArgs = (prisma.lotItem.create as jest.Mock).mock.calls[0][0];
+      expect(Number(itemArgs.data.costPrice).toFixed(2)).toBe('5.50');
+      expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+        data: {
+          productId: 'prod-1',
+          lotItemId: 'item-1',
+          purchaseOrderId: 'po-1',
+          type: 'entry',
+          quantity: 10,
+          reason: 'Receive COM-2026-000007 (COM-2026-000007-R1)',
+        },
+      });
+      const movementOrder = (prisma.stockMovement.create as jest.Mock).mock
+        .invocationCallOrder[0];
+      const lotOrder = (prisma.lot.create as jest.Mock).mock
+        .invocationCallOrder[0];
+      expect(lotOrder).toBeLessThan(movementOrder);
+      expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'po-1',
+          status: { in: ['ordered', 'partially_received'] },
+        },
+        data: { status: 'received' },
+      });
+      expect(result.status).toBe('received');
+      expect(result.lotIds).toEqual(['lot-1']);
+    });
+
+    it('partially receives then completes: one lot per event, suffix from receiptCount (S9)', async () => {
+      const partiallyReceivedPo = {
+        ...orderedPo,
+        status: PurchaseOrderStatus.partially_received,
+        receiptCount: 1,
+        lines: [lineWithReceived(4)],
+      };
+      (prisma.purchaseOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(orderedPo)
+        .mockResolvedValueOnce({ ...orderedPo, status: 'partially_received' })
+        .mockResolvedValueOnce(partiallyReceivedPo)
+        .mockResolvedValueOnce({ ...partiallyReceivedPo, status: 'received' });
+      (prisma.lot.create as jest.Mock)
+        .mockResolvedValueOnce({ id: 'lot-1' })
+        .mockResolvedValueOnce({ id: 'lot-2' });
+
+      const first = await service.receive('po-1', receiveDto(4));
+      const second = await service.receive('po-1', receiveDto(6));
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(prisma.lot.create).toHaveBeenNthCalledWith(1, {
+        data: expect.objectContaining({ lotNumber: 'COM-2026-000007-R1' }),
+      });
+      expect(prisma.lot.create).toHaveBeenNthCalledWith(2, {
+        data: expect.objectContaining({ lotNumber: 'COM-2026-000007-R2' }),
+      });
+      // Overshoot RHS: 10 - 4 = 6 on the second receive
+      expect(prisma.purchaseOrderLine.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'line-1', quantityReceived: { lte: 4 } },
+        data: { quantityReceived: { increment: 6 } },
+      });
+      expect(first.status).toBe('partially_received');
+      expect(first.lotIds).toEqual(['lot-1']);
+      expect(second.status).toBe('received');
+      expect(second.lotIds).toEqual(['lot-2']);
+    });
+
+    it.each([
+      PurchaseOrderStatus.draft,
+      PurchaseOrderStatus.received,
+      PurchaseOrderStatus.cancelled,
+    ])(
+      'throws 409 PO_NOT_RECEIVABLE when the PO is %s, with zero stock writes (S10)',
+      async (status) => {
+        (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+          ...orderedPo,
+          status,
+        });
+        (prisma.purchaseOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 0,
+        });
+
+        await expect(service.receive('po-1', receiveDto(1))).rejects.toThrow(
+          ConflictException
+        );
+        await expect(
+          service.receive('po-1', receiveDto(1))
+        ).rejects.toMatchObject({
+          response: { errorCode: 'PO_NOT_RECEIVABLE' },
+        });
+        expect(prisma.purchaseOrderLine.updateMany).not.toHaveBeenCalled();
+        expect(prisma.lot.create).not.toHaveBeenCalled();
+        expect(prisma.lotItem.create).not.toHaveBeenCalled();
+        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+      }
+    );
+
+    it('throws 409 PO_RECEIVE_OVERSHOOT on guarded count 0, with zero stock writes (S10)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...orderedPo,
+        lines: [lineWithReceived(8)],
+      });
+      (prisma.purchaseOrderLine.updateMany as jest.Mock).mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(service.receive('po-1', receiveDto(5))).rejects.toThrow(
+        ConflictException
+      );
+      await expect(
+        service.receive('po-1', receiveDto(5))
+      ).rejects.toMatchObject({
+        response: { errorCode: 'PO_RECEIVE_OVERSHOOT' },
+      });
+      // The guard predicate must encode the constant bound (10 - 5 = 5)
+      expect(prisma.purchaseOrderLine.updateMany).toHaveBeenCalledWith({
+        where: { id: 'line-1', quantityReceived: { lte: 5 } },
+        data: { quantityReceived: { increment: 5 } },
+      });
+      expect(prisma.lot.create).not.toHaveBeenCalled();
+      expect(prisma.lotItem.create).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 PO_LINE_NOT_FOUND for a line outside the PO (S10)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(
+        orderedPo
+      );
+
+      await expect(
+        service.receive('po-1', {
+          lines: [
+            {
+              lineId: 'line-x',
+              receivedQty: 1,
+              expirationDate: expiration,
+              actualCostPrice: '5.50',
+            },
+          ],
+        })
+      ).rejects.toMatchObject({ response: { errorCode: 'PO_LINE_NOT_FOUND' } });
+      expect(prisma.purchaseOrderLine.updateMany).not.toHaveBeenCalled();
+      expect(prisma.lot.create).not.toHaveBeenCalled();
+    });
+
+    it('throws 404 PURCHASE_ORDER_NOT_FOUND for a missing PO (S10)', async () => {
+      (prisma.purchaseOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.receive('po-x', receiveDto(1))
+      ).rejects.toMatchObject({
+        response: { errorCode: 'PURCHASE_ORDER_NOT_FOUND' },
+      });
+      expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects empty receive lines before opening a transaction (S10)', async () => {
+      await expect(
+        service.receive('po-1', { lines: [] })
+      ).rejects.toMatchObject({ response: { errorCode: 'PO_EMPTY_LINES' } });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('loses the race on the second guarded increment: exactly one lot, loser 409 (S13)', async () => {
+      const racePo = {
+        ...orderedPo,
+        lines: [lineWithReceived(5)],
+      };
+      (prisma.purchaseOrder.findUnique as jest.Mock)
+        .mockResolvedValueOnce(racePo)
+        .mockResolvedValueOnce({ ...racePo, status: 'partially_received' })
+        .mockResolvedValueOnce(racePo)
+        .mockResolvedValueOnce(racePo);
+      // First receive wins the row lock and increments; the loser's guard
+      // re-checks the predicate after the lock wait and matches 0 rows.
+      (prisma.purchaseOrderLine.updateMany as jest.Mock)
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+
+      const winner = await service.receive('po-1', receiveDto(5));
+      await expect(
+        service.receive('po-1', receiveDto(5))
+      ).rejects.toMatchObject({
+        response: { errorCode: 'PO_RECEIVE_OVERSHOOT' },
+      });
+
+      expect(winner.status).toBe('partially_received');
+      expect(winner.lotIds).toEqual(['lot-1']);
+      // Movements match committed receipts exactly: one lot, one item,
+      // one entry movement — nothing for the losing receive.
+      expect(prisma.lot.create).toHaveBeenCalledTimes(1);
+      expect(prisma.lotItem.create).toHaveBeenCalledTimes(1);
+      expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
     });
   });
 });
