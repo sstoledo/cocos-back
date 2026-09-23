@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { RoleName } from '@prisma/client';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
+import type { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import type { PurchaseOrdersService } from './purchase-orders.service';
@@ -31,6 +32,7 @@ describe('PurchaseOrdersController', () => {
       updateDraft: jest.fn(),
       order: jest.fn(),
       cancel: jest.fn(),
+      receive: jest.fn(),
     } as unknown as PurchaseOrdersService;
     controller = new PurchaseOrdersController(purchaseOrdersService);
   });
@@ -80,6 +82,14 @@ describe('PurchaseOrdersController', () => {
         expect(roles).toEqual([RoleName.Admin, RoleName.Purchasing]);
       }
     );
+
+    it('allows receive for Admin, Purchasing and Warehouse (S12 partial)', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        PurchaseOrdersController.prototype.receive,
+        PurchaseOrdersController,
+      ]);
+      expect(roles).toEqual(readRoles);
+    });
   });
 
   describe('create', () => {
@@ -186,6 +196,35 @@ describe('PurchaseOrdersController', () => {
 
       expect(purchaseOrdersService.cancel).toHaveBeenCalledWith('po-1');
       expect(result).toEqual({ id: 'po-1', status: 'cancelled' });
+    });
+  });
+
+  describe('receive', () => {
+    it('delegates to the service with the id and DTO (S8)', async () => {
+      const dto = {
+        lines: [
+          {
+            lineId: 'line-1',
+            receivedQty: 10,
+            expirationDate: '2027-06-01T00:00:00.000Z',
+            actualCostPrice: '5.50',
+          },
+        ],
+      } as ReceivePurchaseOrderDto;
+      (purchaseOrdersService.receive as jest.Mock).mockResolvedValue({
+        id: 'po-1',
+        status: 'received',
+        lotIds: ['lot-1'],
+      });
+
+      const result = await controller.receive('po-1', dto);
+
+      expect(purchaseOrdersService.receive).toHaveBeenCalledWith('po-1', dto);
+      expect(result).toEqual({
+        id: 'po-1',
+        status: 'received',
+        lotIds: ['lot-1'],
+      });
     });
   });
 });

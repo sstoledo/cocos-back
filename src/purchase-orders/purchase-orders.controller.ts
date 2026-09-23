@@ -12,6 +12,7 @@ import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
+import { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrdersService } from './purchase-orders.service';
 
@@ -54,5 +55,11 @@ export class PurchaseOrdersController {
   @Roles(RoleName.Admin, RoleName.Purchasing)
   cancel(@Param('id') id: string) {
     return this.purchaseOrdersService.cancel(id);
+  }
+
+  @Post(':id/receive')
+  @Roles(RoleName.Admin, RoleName.Purchasing, RoleName.Warehouse)
+  receive(@Param('id') id: string, @Body() dto: ReceivePurchaseOrderDto) {
+    return this.purchaseOrdersService.receive(id, dto);
   }
 }

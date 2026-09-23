@@ -115,6 +115,9 @@ export class PurchaseOrderResponseDto {
   receipts?: PurchaseOrderReceiptResponseDto[];
 
   @Expose()
+  lotIds?: string[];
+
+  @Expose()
   @Type(() => Date)
   createdAt: Date;
 
