@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
 import { PurchaseOrderResponseDto } from './dto/purchase-order-response.dto';
+import type { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 
 const PO_INCLUDE = {
   supplier: { select: { id: true, name: true } },
@@ -127,6 +129,167 @@ export class PurchaseOrdersService {
     }
 
     return this.toResponse(purchaseOrder, lots);
+  }
+
+  async updateDraft(id: string, dto: UpdatePurchaseOrderDto) {
+    const lines = dto.lines ?? [];
+
+    if (lines.length === 0) {
+      throw new BadRequestException({
+        message: 'Purchase order must include at least one line',
+        errorCode: 'PO_EMPTY_LINES',
+      });
+    }
+
+    this.ensureNoDuplicateLines(lines.map((l) => l.productId));
+    const lineItems = await this.resolveLineItems(lines);
+
+    const estimatedTotal = lineItems.reduce(
+      (total, line) => total.add(line.subtotal),
+      new Prisma.Decimal(0)
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const purchaseOrder = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+      });
+
+      if (!purchaseOrder) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      // Guarded flip-first: the draft predicate makes the check atomic under
+      // READ COMMITTED; a concurrent order/cancel loses here (count === 0)
+      // and rolls back before any line replacement runs. Draft implies
+      // quantityReceived === 0 on every line, so full replacement is lossless.
+      const guard = await tx.purchaseOrder.updateMany({
+        where: { id, isActive: true, status: 'draft' },
+        data: { estimatedTotal },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: 'Only draft purchase orders can be updated',
+          errorCode: 'PO_NOT_DRAFT',
+        });
+      }
+
+      await tx.purchaseOrderLine.deleteMany({
+        where: { purchaseOrderId: id },
+      });
+      await tx.purchaseOrderLine.createMany({
+        data: lineItems.map((line) => ({
+          purchaseOrderId: id,
+          productId: line.productId,
+          quantityOrdered: line.quantityOrdered,
+          estimatedCostPrice: line.estimatedCostPrice,
+        })),
+      });
+
+      const refreshed = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+        include: PO_INCLUDE,
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      return this.toResponse(refreshed);
+    });
+  }
+
+  async order(id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const purchaseOrder = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+      });
+
+      if (!purchaseOrder) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      // Guarded flip-first: a concurrent order loses here (count === 0).
+      const guard = await tx.purchaseOrder.updateMany({
+        where: { id, status: 'draft' },
+        data: { status: 'ordered' },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: 'Purchase order is not in draft status',
+          errorCode: 'PO_ALREADY_ORDERED',
+        });
+      }
+
+      const refreshed = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+        include: PO_INCLUDE,
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      return this.toResponse(refreshed);
+    });
+  }
+
+  async cancel(id: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const purchaseOrder = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+      });
+
+      if (!purchaseOrder) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      // Guarded flip-first: only draft/ordered can cancel; nothing received
+      // yet, so this performs zero stock writes. Loser of a concurrent flip
+      // gets count === 0.
+      const guard = await tx.purchaseOrder.updateMany({
+        where: { id, status: { in: ['draft', 'ordered'] } },
+        data: { status: 'cancelled' },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message:
+            'Purchase order cannot be cancelled once receiving has started',
+          errorCode: 'PO_CANNOT_CANCEL',
+        });
+      }
+
+      const refreshed = await tx.purchaseOrder.findUnique({
+        where: { id, isActive: true },
+        include: PO_INCLUDE,
+      });
+
+      if (!refreshed) {
+        throw new NotFoundException({
+          message: 'Purchase order not found',
+          errorCode: 'PURCHASE_ORDER_NOT_FOUND',
+        });
+      }
+
+      return this.toResponse(refreshed);
+    });
   }
 
   private ensureNoDuplicateLines(ids: string[]): void {
