@@ -22,9 +22,10 @@ export class CreatePurchaseOrderLineDto {
   @Type(() => Number)
   quantityOrdered: number;
 
+  // The pattern already rejects negative values; @Min does not apply to
+  // string-typed properties (it only validates numbers).
   @IsNumberString()
   @Matches(/^\d+(\.\d{1,2})?$/)
-  @Min(0)
   estimatedCostPrice: string;
 }
 

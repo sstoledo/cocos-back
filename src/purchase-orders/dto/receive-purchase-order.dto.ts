@@ -25,9 +25,10 @@ export class ReceivePurchaseOrderLineDto {
   @IsDateString()
   expirationDate: string;
 
+  // The pattern already rejects negative values; @Min does not apply to
+  // string-typed properties (it only validates numbers).
   @IsNumberString()
   @Matches(/^\d+(\.\d{1,2})?$/)
-  @Min(0)
   actualCostPrice: string;
 }
 

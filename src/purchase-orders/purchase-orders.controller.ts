@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -58,6 +60,7 @@ export class PurchaseOrdersController {
   }
 
   @Post(':id/receive')
+  @HttpCode(HttpStatus.OK)
   @Roles(RoleName.Admin, RoleName.Purchasing, RoleName.Warehouse)
   receive(@Param('id') id: string, @Body() dto: ReceivePurchaseOrderDto) {
     return this.purchaseOrdersService.receive(id, dto);
