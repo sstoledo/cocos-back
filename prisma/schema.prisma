@@ -131,6 +131,7 @@ model Product {
   stockMovements    StockMovement[]
   workOrderProducts WorkOrderProduct[]
   saleProducts      SaleProduct[]
+  purchaseOrderLines PurchaseOrderLine[]
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
@@ -147,9 +148,10 @@ model Supplier {
   address   String?
   isActive  Boolean   @default(true)
   deletedAt DateTime?
-  lots      Lot[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  lots           Lot[]
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   @@index([isActive])
   @@map("suppliers")
@@ -219,17 +221,20 @@ model Service {
 }
 
 model Lot {
-  id         String    @id @default(cuid())
-  lotNumber  String    @unique
-  supplierId String
-  supplier   Supplier  @relation(fields: [supplierId], references: [id])
-  receivedAt DateTime  @default(now())
-  notes      String?
-  items      LotItem[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id              String         @id @default(cuid())
+  lotNumber       String         @unique
+  supplierId      String
+  supplier        Supplier       @relation(fields: [supplierId], references: [id])
+  purchaseOrderId String?        @map("purchase_order_id")
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  receivedAt      DateTime       @default(now())
+  notes           String?
+  items           LotItem[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@index([supplierId])
+  @@index([purchaseOrderId])
   @@map("lots")
 }
 
@@ -260,6 +265,8 @@ model StockMovement {
   workOrder   WorkOrder?        @relation(fields: [workOrderId], references: [id])
   saleId      String?           @map("sale_id")
   sale        Sale?             @relation(fields: [saleId], references: [id])
+  purchaseOrderId String?       @map("purchase_order_id")
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
   type        StockMovementType
   quantity    Int
   reason      String?
@@ -269,6 +276,7 @@ model StockMovement {
   @@index([lotItemId])
   @@index([workOrderId])
   @@index([saleId])
+  @@index([purchaseOrderId])
   @@map("stock_movements")
 }
 
@@ -484,4 +492,63 @@ model SaleNumberSequence {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("sale_number_sequences")
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  partially_received
+  received
+  cancelled
+
+  @@map("purchase_order_status")
+}
+
+model PurchaseOrder {
+  id                  String              @id @default(cuid())
+  purchaseOrderNumber String              @unique @map("purchase_order_number")
+  supplierId          String              @map("supplier_id")
+  supplier            Supplier            @relation(fields: [supplierId], references: [id])
+  status              PurchaseOrderStatus @default(draft)
+  notes               String?
+  estimatedTotal      Decimal             @default(0.00) @map("estimated_total") @db.Decimal(10, 2)
+  receiptCount        Int                 @default(0) @map("receipt_count")
+  isActive            Boolean             @default(true) @map("is_active")
+  deletedAt           DateTime?           @map("deleted_at")
+  lines               PurchaseOrderLine[]
+  stockMovements      StockMovement[]
+  lots                Lot[]
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([isActive])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id                String        @id @default(cuid())
+  purchaseOrderId   String        @map("purchase_order_id")
+  purchaseOrder     PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId         String        @map("product_id")
+  product           Product       @relation(fields: [productId], references: [id])
+  quantityOrdered   Int           @map("quantity_ordered")
+  quantityReceived  Int           @default(0) @map("quantity_received")
+  estimatedCostPrice Decimal      @map("estimated_cost_price") @db.Decimal(10, 2)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  @@unique([purchaseOrderId, productId])
+  @@map("purchase_order_lines")
+}
+
+model PurchaseOrderNumberSequence {
+  id         String   @id @default(cuid())
+  year       Int      @unique
+  lastNumber Int      @default(0) @map("last_number")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("purchase_order_number_sequences")
 }
