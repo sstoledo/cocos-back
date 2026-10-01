@@ -6,6 +6,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { ClientsModule } from './clients/clients.module';
 import { HealthModule } from './health/health.module';
 import { LotsModule } from './lots/lots.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
@@ -40,6 +41,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     WorkOrdersModule,
     SalesModule,
     PurchaseOrdersModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
