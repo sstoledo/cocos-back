@@ -3,7 +3,12 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, WorkOrderStatus } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  RoleName,
+  WorkOrderStatus,
+} from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import type { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
@@ -15,6 +20,7 @@ describe('WorkOrdersService', () => {
   let prisma: PrismaService;
   let clientsService: { exists: jest.Mock };
   let vehiclesService: { findOne: jest.Mock };
+  let notificationsService: { createForRole: jest.Mock };
 
   const workOrderRecord = {
     id: 'wo-1',
@@ -148,6 +154,7 @@ describe('WorkOrdersService', () => {
     jest.clearAllMocks();
     clientsService = { exists: jest.fn() };
     vehiclesService = { findOne: jest.fn() };
+    notificationsService = { createForRole: jest.fn() };
     prisma = {
       workOrder: {
         create: jest.fn(),
@@ -203,7 +210,9 @@ describe('WorkOrdersService', () => {
       // biome-ignore lint/suspicious/noExplicitAny: test mock types
       clientsService as any,
       // biome-ignore lint/suspicious/noExplicitAny: test mock types
-      vehiclesService as any
+      vehiclesService as any,
+      // biome-ignore lint/suspicious/noExplicitAny: test mock types
+      notificationsService as any
     );
   });
 
@@ -1766,6 +1775,89 @@ describe('WorkOrdersService', () => {
       expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
       expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
       expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    describe('notification generation (B11.3)', () => {
+      it('notifies Admin and Reception in-tx when transitioning to done, with client and vehicle summary', async () => {
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderAt('in_progress'))
+          .mockResolvedValueOnce({
+            ...fullRecordAt('done'),
+            client: clientRecord,
+            vehicle: vehicleRecord,
+          });
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        await service.transitionStatus('wo-1', WorkOrderStatus.done);
+
+        expect(notificationsService.createForRole).toHaveBeenCalledTimes(1);
+        const [client, roles, payload] =
+          notificationsService.createForRole.mock.calls[0];
+        expect(client).toBe(prisma); // tx === prisma in this mock setup
+        expect(roles).toEqual([RoleName.Admin, RoleName.Reception]);
+        expect(payload).toEqual({
+          type: NotificationType.work_order_ready,
+          title: 'Orden de trabajo OC-2026-000001 lista',
+          body: 'Cliente: María García — Vehículo: Toyota Corolla (ABC123)',
+          link: '/work-orders/wo-1',
+        });
+      });
+
+      it('passes the transaction client (not the global prisma) to createForRole', async () => {
+        const tx = Object.create(prisma);
+        (prisma.$transaction as jest.Mock).mockImplementationOnce(
+          (callback: (txArg: unknown) => unknown) => callback(tx)
+        );
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderAt('in_progress'))
+          .mockResolvedValueOnce({
+            ...fullRecordAt('done'),
+            client: clientRecord,
+            vehicle: vehicleRecord,
+          });
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        await service.transitionStatus('wo-1', WorkOrderStatus.done);
+
+        const [client] = notificationsService.createForRole.mock.calls[0];
+        expect(client).toBe(tx);
+        expect(client).not.toBe(prisma);
+      });
+
+      it.each([['in_progress'], ['cancelled']])(
+        'does not notify when transitioning to %s',
+        async (to) => {
+          mockSuccessfulTransition('pending', to);
+
+          await service.transitionStatus('wo-1', to as WorkOrderStatus);
+
+          expect(notificationsService.createForRole).not.toHaveBeenCalled();
+        }
+      );
+
+      it('rolls back the transition when notification generation fails (atomic semantic)', async () => {
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderAt('in_progress'))
+          .mockResolvedValueOnce({
+            ...fullRecordAt('done'),
+            client: clientRecord,
+            vehicle: vehicleRecord,
+          });
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+        notificationsService.createForRole.mockRejectedValue(
+          new Error('notification write failed')
+        );
+
+        await expect(
+          service.transitionStatus('wo-1', WorkOrderStatus.done)
+        ).rejects.toThrow('notification write failed');
+      });
     });
 
     describe('done stock consumption', () => {

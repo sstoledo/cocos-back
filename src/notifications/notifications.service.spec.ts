@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, RoleName } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from './notifications.service';
 
@@ -26,6 +26,10 @@ describe('NotificationsService', () => {
         count: jest.fn(),
         updateMany: jest.fn(),
         findUnique: jest.fn(),
+        createMany: jest.fn(),
+      },
+      user: {
+        findMany: jest.fn(),
       },
     } as unknown as PrismaService;
     service = new NotificationsService(prisma);
@@ -168,6 +172,69 @@ describe('NotificationsService', () => {
           response: { errorCode: 'NOTIFICATION_NOT_FOUND' },
         }
       );
+    });
+  });
+
+  describe('createForRole', () => {
+    const payload = {
+      type: NotificationType.work_order_ready,
+      title: 'Orden de trabajo OT-2026-000001 lista',
+      body: 'Cliente: María García — Vehículo: Toyota Corolla (ABC123)',
+      link: '/work-orders/wo-1',
+    };
+
+    it('creates one notification per user holding any of the given roles', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: 'user-1' },
+        { id: 'user-2' },
+        { id: 'user-3' },
+      ]);
+      (prisma.notification.createMany as jest.Mock).mockResolvedValue({
+        count: 3,
+      });
+
+      await service.createForRole(
+        prisma,
+        [RoleName.Admin, RoleName.Reception],
+        payload
+      );
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { role: { name: { in: [RoleName.Admin, RoleName.Reception] } } },
+        select: { id: true },
+      });
+      expect(prisma.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          { userId: 'user-1', ...payload },
+          { userId: 'user-2', ...payload },
+          { userId: 'user-3', ...payload },
+        ],
+      });
+    });
+
+    it('writes through the provided transaction client instead of the global prisma', async () => {
+      const tx = {
+        user: { findMany: jest.fn().mockResolvedValue([{ id: 'user-9' }]) },
+        notification: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      };
+
+      // biome-ignore lint/suspicious/noExplicitAny: test mock types
+      await service.createForRole(tx as any, [RoleName.Admin], payload);
+
+      expect(tx.user.findMany).toHaveBeenCalled();
+      expect(tx.notification.createMany).toHaveBeenCalledWith({
+        data: [{ userId: 'user-9', ...payload }],
+      });
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when no user matches the roles', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.createForRole(prisma, [RoleName.ReadOnly], payload);
+
+      expect(prisma.notification.createMany).not.toHaveBeenCalled();
     });
   });
 

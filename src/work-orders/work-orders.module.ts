@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ClientsModule } from '../clients/clients.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ServicesModule } from '../services/services.module';
 import { VehiclesModule } from '../vehicles/vehicles.module';
@@ -14,6 +15,7 @@ import { WorkOrdersService } from './work-orders.service';
     ClientsModule,
     VehiclesModule,
     ServicesModule,
+    NotificationsModule,
   ],
   controllers: [WorkOrdersController],
   providers: [WorkOrdersService],

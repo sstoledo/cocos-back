@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, RoleName } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersQueryDto } from './dto/list-purchase-orders-query.dto';
@@ -23,7 +24,10 @@ const PO_INCLUDE = {
 
 @Injectable()
 export class PurchaseOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService
+  ) {}
 
   async create(dto: CreatePurchaseOrderDto) {
     const lines = dto.lines ?? [];
@@ -427,6 +431,20 @@ export class PurchaseOrdersService {
         },
         data: { status: allComplete ? 'received' : 'partially_received' },
       });
+
+      // B11.3: the received notification is generated inside this
+      // transaction — a generation failure rolls back the receipt
+      // (atomic consistency).
+      await this.notificationsService.createForRole(
+        tx,
+        [RoleName.Admin, RoleName.Purchasing, RoleName.Warehouse],
+        {
+          type: 'purchase_order_received',
+          title: `Orden de compra ${purchaseOrder.purchaseOrderNumber} recibida${allComplete ? '' : ' parcialmente'}`,
+          body: `${resolvedLines.length} líneas recibidas en el lote ${lotNumber}`,
+          link: `/purchase-orders/${id}`,
+        }
+      );
 
       const refreshed = await tx.purchaseOrder.findUnique({
         where: { id, isActive: true },
