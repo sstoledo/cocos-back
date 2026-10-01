@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { BrandsModule } from './brands/brands.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ClientsModule } from './clients/clients.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 import { LotsModule } from './lots/lots.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -42,6 +43,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     SalesModule,
     PurchaseOrdersModule,
     NotificationsModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}
