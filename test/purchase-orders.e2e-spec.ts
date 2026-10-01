@@ -333,6 +333,17 @@ describe('PurchaseOrders (e2e)', () => {
         findUnique: jest.fn(({ where }) => {
           return users.find((user) => user.id === where.id) ?? null;
         }),
+        // B11.4: createForRole resolves recipients by role inside the
+        // receive transaction.
+        findMany: jest.fn(({ where }) => {
+          const roles = where?.role?.name?.in as Array<RoleName> | undefined;
+          return users
+            .filter((user) => !roles || roles.includes(user.role.name))
+            .map((user) => ({ id: user.id }));
+        }),
+      },
+      notification: {
+        createMany: jest.fn(({ data }) => ({ count: data.length })),
       },
       $transaction: jest.fn((callback) => callback(prisma)),
     } as unknown as PrismaService;
