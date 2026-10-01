@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, WorkOrderStatus } from '@prisma/client';
+import { Prisma, RoleName, WorkOrderStatus } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { ClientsService } from '../clients/clients.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
@@ -42,7 +43,8 @@ export class WorkOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientsService: ClientsService,
-    private readonly vehiclesService: VehiclesService
+    private readonly vehiclesService: VehiclesService,
+    private readonly notificationsService: NotificationsService
   ) {}
 
   async create(dto: CreateWorkOrderDto) {
@@ -300,6 +302,21 @@ export class WorkOrdersService {
         });
       }
 
+      // B11.3: the ready notification is generated inside this transaction —
+      // a generation failure rolls back the transition (atomic consistency).
+      if (to === WorkOrderStatus.done) {
+        await this.notificationsService.createForRole(
+          tx,
+          [RoleName.Admin, RoleName.Reception],
+          {
+            type: 'work_order_ready',
+            title: `Orden de trabajo ${refreshed.orderNumber} lista`,
+            body: this.readyNotificationBody(refreshed),
+            link: `/work-orders/${refreshed.id}`,
+          }
+        );
+      }
+
       return refreshed;
     });
 
@@ -316,6 +333,17 @@ export class WorkOrdersService {
     });
 
     return this.toResponse(removed);
+  }
+
+  private readyNotificationBody(workOrder: {
+    client?: { name: string } | null;
+    vehicle?: { plate: string; brand: string; model: string } | null;
+  }): string {
+    if (workOrder.client && workOrder.vehicle) {
+      const { brand, model, plate } = workOrder.vehicle;
+      return `Cliente: ${workOrder.client.name} — Vehículo: ${brand} ${model} (${plate})`;
+    }
+    return 'La orden de trabajo está lista para entrega';
   }
 
   private async consumeStockForOrder(

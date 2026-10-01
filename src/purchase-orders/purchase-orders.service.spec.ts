@@ -3,7 +3,12 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, PurchaseOrderStatus } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  PurchaseOrderStatus,
+  RoleName,
+} from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
@@ -13,6 +18,7 @@ import { PurchaseOrdersService } from './purchase-orders.service';
 describe('PurchaseOrdersService', () => {
   let service: PurchaseOrdersService;
   let prisma: PrismaService;
+  let notificationsService: { createForRole: jest.Mock };
 
   const supplierRecord = {
     id: 'sup-1',
@@ -57,6 +63,7 @@ describe('PurchaseOrdersService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    notificationsService = { createForRole: jest.fn() };
     prisma = {
       supplier: { findUnique: jest.fn() },
       product: { findUnique: jest.fn() },
@@ -111,7 +118,11 @@ describe('PurchaseOrdersService', () => {
         })),
       })
     );
-    service = new PurchaseOrdersService(prisma);
+    service = new PurchaseOrdersService(
+      prisma,
+      // biome-ignore lint/suspicious/noExplicitAny: test mock types
+      notificationsService as any
+    );
   });
 
   describe('create', () => {
@@ -863,6 +874,80 @@ describe('PurchaseOrdersService', () => {
       expect(prisma.lot.create).toHaveBeenCalledTimes(1);
       expect(prisma.lotItem.create).toHaveBeenCalledTimes(1);
       expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
+    });
+
+    describe('notification generation (B11.3)', () => {
+      it('notifies Admin, Purchasing and Warehouse in-tx on a full receive', async () => {
+        (prisma.purchaseOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderedPo)
+          .mockResolvedValueOnce({ ...orderedPo, status: 'received' });
+
+        await service.receive('po-1', receiveDto(10));
+
+        expect(notificationsService.createForRole).toHaveBeenCalledTimes(1);
+        const [client, roles, payload] =
+          notificationsService.createForRole.mock.calls[0];
+        expect(client).toBe(prisma); // tx === prisma in this mock setup
+        expect(roles).toEqual([
+          RoleName.Admin,
+          RoleName.Purchasing,
+          RoleName.Warehouse,
+        ]);
+        expect(payload).toEqual({
+          type: NotificationType.purchase_order_received,
+          title: 'Orden de compra COM-2026-000007 recibida',
+          body: '1 líneas recibidas en el lote COM-2026-000007-R1',
+          link: '/purchase-orders/po-1',
+        });
+      });
+
+      it('appends "parcialmente" to the title on a partial receive', async () => {
+        (prisma.purchaseOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderedPo)
+          .mockResolvedValueOnce({
+            ...orderedPo,
+            status: 'partially_received',
+          });
+
+        await service.receive('po-1', receiveDto(4));
+
+        const [, , payload] = notificationsService.createForRole.mock.calls[0];
+        expect(payload.title).toBe(
+          'Orden de compra COM-2026-000007 recibida parcialmente'
+        );
+        expect(payload.body).toBe(
+          '1 líneas recibidas en el lote COM-2026-000007-R1'
+        );
+      });
+
+      it('passes the transaction client (not the global prisma) to createForRole', async () => {
+        const tx = Object.create(prisma);
+        (prisma.$transaction as jest.Mock).mockImplementationOnce(
+          (callback: (txArg: unknown) => unknown) => callback(tx)
+        );
+        (prisma.purchaseOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderedPo)
+          .mockResolvedValueOnce({ ...orderedPo, status: 'received' });
+
+        await service.receive('po-1', receiveDto(10));
+
+        const [client] = notificationsService.createForRole.mock.calls[0];
+        expect(client).toBe(tx);
+        expect(client).not.toBe(prisma);
+      });
+
+      it('rolls back the receive when notification generation fails (atomic semantic)', async () => {
+        (prisma.purchaseOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderedPo)
+          .mockResolvedValueOnce({ ...orderedPo, status: 'received' });
+        notificationsService.createForRole.mockRejectedValue(
+          new Error('notification write failed')
+        );
+
+        await expect(service.receive('po-1', receiveDto(10))).rejects.toThrow(
+          'notification write failed'
+        );
+      });
     });
   });
 });
