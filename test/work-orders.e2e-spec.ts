@@ -547,6 +547,17 @@ describe('Work Orders (e2e)', () => {
           if (where.id === mechanicUser.id) return mechanicUser;
           return null;
         }),
+        // B11.4: createForRole resolves recipients by role inside the
+        // transition transaction.
+        findMany: jest.fn(({ where }) => {
+          const roles = where?.role?.name?.in as Array<RoleName> | undefined;
+          return [adminUser, receptionUser, mechanicUser]
+            .filter((user) => !roles || roles.includes(user.role.name))
+            .map((user) => ({ id: user.id }));
+        }),
+      },
+      notification: {
+        createMany: jest.fn(({ data }) => ({ count: data.length })),
       },
     } as unknown as PrismaService;
 

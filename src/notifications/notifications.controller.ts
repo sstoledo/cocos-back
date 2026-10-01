@@ -10,7 +10,7 @@ import {
 import { RoleName } from '@prisma/client';
 import type { RequestWithUser } from '../auth';
 import { Roles, RolesGuard } from '../auth';
-import type { ListNotificationsQueryDto } from './dto/list-notifications-query.dto';
+import { ListNotificationsQueryDto } from './dto/list-notifications-query.dto';
 import { NotificationsService } from './notifications.service';
 
 const ALL_ROLES = [
