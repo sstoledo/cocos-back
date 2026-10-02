@@ -4,6 +4,7 @@ import type { RequestWithUser } from '../auth';
 import { CashClosingsController } from './cash-closings.controller';
 import type { CashClosingsService } from './cash-closings.service';
 import type { CreateCashClosingDto } from './dto/create-cash-closing.dto';
+import type { ListCashClosingsQueryDto } from './dto/list-cash-closings-query.dto';
 
 jest.mock('../auth/auth', () => ({
   auth: {
@@ -32,6 +33,8 @@ describe('CashClosingsController', () => {
     cashClosingsService = {
       close: jest.fn(),
       preview: jest.fn(),
+      findAll: jest.fn(),
+      findOne: jest.fn(),
     } as unknown as CashClosingsService;
     controller = new CashClosingsController(cashClosingsService);
   });
@@ -48,7 +51,7 @@ describe('CashClosingsController', () => {
   describe('roles', () => {
     const reflector = new Reflector();
 
-    it.each(['close', 'preview'] as const)(
+    it.each(['close', 'preview', 'findAll', 'findOne'] as const)(
       'allows only Admin and Reception for %s',
       (method) => {
         const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
@@ -83,6 +86,31 @@ describe('CashClosingsController', () => {
 
       expect(cashClosingsService.preview).toHaveBeenCalledWith('user-1');
       expect(result).toEqual(preview);
+    });
+  });
+
+  describe('findAll', () => {
+    it('delegates to the service with the query dto', async () => {
+      const queryDto: ListCashClosingsQueryDto = { page: 2, limit: 10 };
+      const page = { data: [], meta: { page: 2, limit: 10, total: 0 } };
+      (cashClosingsService.findAll as jest.Mock).mockResolvedValue(page);
+
+      const result = await controller.findAll(queryDto);
+
+      expect(cashClosingsService.findAll).toHaveBeenCalledWith(queryDto);
+      expect(result).toEqual(page);
+    });
+  });
+
+  describe('findOne', () => {
+    it('delegates to the service with the id param', async () => {
+      const closing = { id: 'closing-1' };
+      (cashClosingsService.findOne as jest.Mock).mockResolvedValue(closing);
+
+      const result = await controller.findOne('closing-1');
+
+      expect(cashClosingsService.findOne).toHaveBeenCalledWith('closing-1');
+      expect(result).toEqual(closing);
     });
   });
 });
