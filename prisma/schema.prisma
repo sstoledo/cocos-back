@@ -36,6 +36,7 @@ model User {
   accounts      Account[]
   employee      Employee?
   notifications Notification[]
+  cashClosings  CashClosing[]
 }
 
 model Session {
@@ -559,6 +560,27 @@ enum NotificationType {
   purchase_order_received
 
   @@map("notification_type")
+}
+
+model CashClosing {
+  id               String   @id @default(uuid())
+  closedById       String   @map("closed_by_id")
+  closedBy         User     @relation(fields: [closedById], references: [id], onDelete: Restrict)
+  periodStart      DateTime @map("period_start")
+  periodEnd        DateTime @map("period_end")
+  expectedCash     Decimal  @map("expected_cash") @db.Decimal(10, 2)
+  expectedCard     Decimal  @map("expected_card") @db.Decimal(10, 2)
+  expectedTransfer Decimal  @map("expected_transfer") @db.Decimal(10, 2)
+  declaredCash     Decimal  @map("declared_cash") @db.Decimal(10, 2)
+  difference       Decimal  @db.Decimal(10, 2)
+  salesCount       Int      @map("sales_count")
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([periodStart])
+  @@index([periodEnd])
+  @@index([closedById])
+  @@map("cash_closings")
 }
 
 model Notification {
