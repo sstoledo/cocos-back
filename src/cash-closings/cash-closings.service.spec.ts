@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { CashClosingsService } from './cash-closings.service';
@@ -7,6 +7,36 @@ import type { CreateCashClosingDto } from './dto/create-cash-closing.dto';
 const NOW = new Date('2026-10-02T14:00:00.000Z');
 const LAST_PERIOD_END = new Date('2026-09-30T22:00:00.000Z');
 const EARLIEST_SALE_AT = new Date('2026-09-15T10:30:00.000Z');
+
+const CLOSING_RECORD = {
+  id: 'closing-1',
+  periodStart: LAST_PERIOD_END,
+  periodEnd: NOW,
+  expectedCash: new Prisma.Decimal('250.50'),
+  expectedCard: new Prisma.Decimal('100'),
+  expectedTransfer: new Prisma.Decimal('0'),
+  declaredCash: new Prisma.Decimal('300.75'),
+  difference: new Prisma.Decimal('50.25'),
+  salesCount: 5,
+  notes: 'Cierre turno tarde',
+  createdAt: NOW,
+  closedBy: { id: 'user-1', name: 'Ada Admin' },
+};
+
+const CLOSING_RESPONSE = {
+  id: 'closing-1',
+  periodStart: LAST_PERIOD_END,
+  periodEnd: NOW,
+  expectedCash: '250.50',
+  expectedCard: '100.00',
+  expectedTransfer: '0.00',
+  declaredCash: '300.75',
+  difference: '50.25',
+  salesCount: 5,
+  notes: 'Cierre turno tarde',
+  createdAt: NOW,
+  closedBy: { id: 'user-1', name: 'Ada Admin' },
+};
 
 const createPrismaError = (code: string) =>
   new Prisma.PrismaClientKnownRequestError('unique constraint', {
@@ -25,6 +55,9 @@ describe('CashClosingsService', () => {
     prisma = {
       cashClosing: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        count: jest.fn(),
         create: jest.fn(),
       },
       sale: {
@@ -357,6 +390,85 @@ describe('CashClosingsService', () => {
       (prisma.cashClosing.create as jest.Mock).mockRejectedValue(failure);
 
       await expect(service.close('user-1', dto)).rejects.toBe(failure);
+    });
+  });
+
+  describe('findAll', () => {
+    beforeEach(() => {
+      (prisma.cashClosing.findMany as jest.Mock).mockResolvedValue([
+        CLOSING_RECORD,
+      ]);
+      (prisma.cashClosing.count as jest.Mock).mockResolvedValue(35);
+    });
+
+    it('lists closings newest first with pagination and closedBy summary', async () => {
+      await service.findAll({ page: 2, limit: 10 });
+
+      expect(prisma.cashClosing.findMany).toHaveBeenCalledWith({
+        orderBy: { periodEnd: 'desc' },
+        skip: 10,
+        take: 10,
+        include: { closedBy: { select: { id: true, name: true } } },
+      });
+      expect(prisma.cashClosing.count).toHaveBeenCalledWith();
+    });
+
+    it('defaults to page 1 and limit 20', async () => {
+      await service.findAll({});
+
+      expect(prisma.cashClosing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 20 })
+      );
+    });
+
+    it('returns the {data, meta} shape with decimals as strings', async () => {
+      const result = await service.findAll({ page: 2, limit: 10 });
+
+      expect(result).toEqual({
+        data: [CLOSING_RESPONSE],
+        meta: { page: 2, limit: 10, total: 35 },
+      });
+    });
+
+    it('returns an empty page when there are no closings', async () => {
+      (prisma.cashClosing.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.cashClosing.count as jest.Mock).mockResolvedValue(0);
+
+      const result = await service.findAll({ page: 1, limit: 20 });
+
+      expect(result).toEqual({
+        data: [],
+        meta: { page: 1, limit: 20, total: 0 },
+      });
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns the closing with decimals as strings and closedBy summary', async () => {
+      (prisma.cashClosing.findUnique as jest.Mock).mockResolvedValue(
+        CLOSING_RECORD
+      );
+
+      const result = await service.findOne('closing-1');
+
+      expect(prisma.cashClosing.findUnique).toHaveBeenCalledWith({
+        where: { id: 'closing-1' },
+        include: { closedBy: { select: { id: true, name: true } } },
+      });
+      expect(result).toEqual(CLOSING_RESPONSE);
+    });
+
+    it('throws NotFoundException with CASH_CLOSING_NOT_FOUND when missing', async () => {
+      (prisma.cashClosing.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const error = await service
+        .findOne('missing-id')
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect((error as NotFoundException).getResponse()).toMatchObject({
+        errorCode: 'CASH_CLOSING_NOT_FOUND',
+      });
     });
   });
 });

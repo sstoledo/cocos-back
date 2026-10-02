@@ -1,10 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { CashClosingResponseDto } from './dto/cash-closing.response.dto';
 import { ClosingPreviewResponseDto } from './dto/closing-preview.response.dto';
 import type { CreateCashClosingDto } from './dto/create-cash-closing.dto';
+import type { ListCashClosingsQueryDto } from './dto/list-cash-closings-query.dto';
 
 type Client = Pick<Prisma.TransactionClient, 'cashClosing' | 'sale'>;
 
@@ -89,6 +94,45 @@ export class CashClosingsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Newest first (periodEnd desc). Closings are an immutable audit trail —
+   * no soft-delete filter applies here.
+   */
+  async findAll(queryDto: ListCashClosingsQueryDto) {
+    const { page = 1, limit = 20 } = queryDto;
+
+    const [data, total] = await Promise.all([
+      this.prisma.cashClosing.findMany({
+        orderBy: { periodEnd: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { closedBy: { select: { id: true, name: true } } },
+      }),
+      this.prisma.cashClosing.count(),
+    ]);
+
+    return {
+      data: data.map((closing) => this.toResponse(closing)),
+      meta: { page, limit, total },
+    };
+  }
+
+  async findOne(id: string): Promise<CashClosingResponseDto> {
+    const closing = await this.prisma.cashClosing.findUnique({
+      where: { id },
+      include: { closedBy: { select: { id: true, name: true } } },
+    });
+
+    if (!closing) {
+      throw new NotFoundException({
+        message: 'Cash closing not found',
+        errorCode: 'CASH_CLOSING_NOT_FOUND',
+      });
+    }
+
+    return this.toResponse(closing);
   }
 
   /**
