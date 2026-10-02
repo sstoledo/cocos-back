@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { BrandsModule } from './brands/brands.module';
+import { CashClosingsModule } from './cash-closings/cash-closings.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ClientsModule } from './clients/clients.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -44,6 +45,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     PurchaseOrdersModule,
     NotificationsModule,
     DashboardModule,
+    CashClosingsModule,
   ],
 })
 export class AppModule {}
