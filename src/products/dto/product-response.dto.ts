@@ -28,6 +28,7 @@ export class ProductResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 
@@ -54,6 +55,7 @@ export class ProductResponseDto {
   barcode?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   taxRate: string;
 

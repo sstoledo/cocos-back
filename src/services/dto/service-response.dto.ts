@@ -15,6 +15,7 @@ export class ServiceResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 
