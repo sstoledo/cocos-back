@@ -24,27 +24,27 @@ export class CashClosingResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   expectedCash: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   expectedCard: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   expectedTransfer: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   declaredCash: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   difference: string;
 
   @Expose()

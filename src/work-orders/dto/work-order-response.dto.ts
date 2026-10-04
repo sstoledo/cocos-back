@@ -16,7 +16,7 @@ export class WorkOrderServiceItemResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   price: string;
 
   @Expose()
@@ -37,12 +37,12 @@ export class WorkOrderServiceResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   unitPriceSnapshot: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   subtotal: string;
 
   @Expose()
@@ -74,7 +74,7 @@ export class WorkOrderProductItemResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   price: string;
 }
 
@@ -92,12 +92,12 @@ export class WorkOrderProductResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   unitPriceSnapshot: string;
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   subtotal: string;
 
   @Expose()
@@ -177,7 +177,7 @@ export class WorkOrderResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   totalAmount: string;
 
   @Expose()

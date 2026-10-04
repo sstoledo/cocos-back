@@ -14,7 +14,7 @@ describe('ServicesService', () => {
     code: 'OIL-001',
     name: 'Oil change',
     description: 'Standard oil change',
-    price: 25.5,
+    price: '25.50',
     estimatedDuration: 30,
     isActive: true,
     deletedAt: null,
@@ -61,7 +61,7 @@ describe('ServicesService', () => {
       expect(result).toMatchObject({
         id: 'svc-1',
         code: 'OIL-001',
-        price: '25.5',
+        price: '25.50',
       });
     });
 
@@ -133,7 +133,7 @@ describe('ServicesService', () => {
       expect(prisma.service.findUnique).toHaveBeenCalledWith({
         where: { id: 'svc-1', isActive: true },
       });
-      expect(result).toMatchObject({ id: 'svc-1', price: '25.5' });
+      expect(result).toMatchObject({ id: 'svc-1', price: '25.50' });
     });
 
     it('throws NotFoundException when the service is inactive', async () => {

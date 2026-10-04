@@ -28,15 +28,15 @@ describe('CashClosingResponseDto', () => {
       }
     );
 
-    expect(response.expectedCash).toBe('1000');
+    expect(response.expectedCash).toBe('1000.00');
     expect(typeof response.expectedCash).toBe('string');
-    expect(response.expectedCard).toBe('2000.5');
+    expect(response.expectedCard).toBe('2000.50');
     expect(typeof response.expectedCard).toBe('string');
     expect(response.expectedTransfer).toBe('500.25');
     expect(typeof response.expectedTransfer).toBe('string');
-    expect(response.declaredCash).toBe('995');
+    expect(response.declaredCash).toBe('995.00');
     expect(typeof response.declaredCash).toBe('string');
-    expect(response.difference).toBe('-5');
+    expect(response.difference).toBe('-5.00');
     expect(typeof response.difference).toBe('string');
   });
 });

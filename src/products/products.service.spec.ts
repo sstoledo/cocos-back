@@ -78,13 +78,13 @@ describe('ProductsService', () => {
         {
           id: 'product-2',
           name: 'Brake pads',
-          price: '50',
+          price: '50.00',
           ...baseRelations,
         },
         {
           id: 'product-1',
           name: 'Engine oil',
-          price: '30',
+          price: '30.00',
           ...baseRelations,
         },
       ];
@@ -109,7 +109,7 @@ describe('ProductsService', () => {
       const product = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         ...baseRelations,
       };
       (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
@@ -161,8 +161,8 @@ describe('ProductsService', () => {
       const created = {
         id: 'product-1',
         ...dto,
-        price: '30',
-        taxRate: '21',
+        price: '30.00',
+        taxRate: '21.00',
         ...baseRelations,
       };
       (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
@@ -186,8 +186,8 @@ describe('ProductsService', () => {
       const created = {
         id: 'product-1',
         ...dto,
-        price: '30',
-        taxRate: '21',
+        price: '30.00',
+        taxRate: '21.00',
         imagePublicId: uploadedImage.publicId,
         ...baseRelations,
       };
@@ -247,7 +247,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         ...baseRelations,
       };
       const dto = { name: 'Engine oil premium', brandId: 'brand-2' };
@@ -276,7 +276,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         imagePublicId: 'products/old',
         ...baseRelations,
       };
@@ -347,7 +347,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         imagePublicId: 'products/old',
         ...baseRelations,
       };
@@ -389,7 +389,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         imagePublicId: 'products/old',
         ...baseRelations,
       };
@@ -449,7 +449,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         imagePublicId: 'products/old',
         ...baseRelations,
       };
@@ -493,7 +493,7 @@ describe('ProductsService', () => {
       const existing = {
         id: 'product-1',
         name: 'Engine oil',
-        price: '30',
+        price: '30.00',
         imagePublicId: 'products/old',
         ...baseRelations,
       };

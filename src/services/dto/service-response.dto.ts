@@ -16,7 +16,7 @@ export class ServiceResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   price: string;
 
   @Expose()

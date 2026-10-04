@@ -39,7 +39,7 @@ export class PurchaseOrderLineResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   estimatedCostPrice: string;
 
   @Expose()
@@ -58,7 +58,7 @@ export class PurchaseOrderReceiptItemResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   costPrice: string;
 
   @Expose()
@@ -102,7 +102,7 @@ export class PurchaseOrderResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   estimatedTotal: string;
 
   @Expose()
