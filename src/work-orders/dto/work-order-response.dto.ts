@@ -15,6 +15,7 @@ export class WorkOrderServiceItemResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 
@@ -35,10 +36,12 @@ export class WorkOrderServiceResponseDto {
   quantity: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   unitPriceSnapshot: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   subtotal: string;
 
@@ -70,6 +73,7 @@ export class WorkOrderProductItemResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 }
@@ -87,10 +91,12 @@ export class WorkOrderProductResponseDto {
   quantity: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   unitPriceSnapshot: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   subtotal: string;
 
@@ -170,6 +176,7 @@ export class WorkOrderResponseDto {
   status: 'pending' | 'in_progress' | 'done' | 'cancelled';
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   totalAmount: string;
 

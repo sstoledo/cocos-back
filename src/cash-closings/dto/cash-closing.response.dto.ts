@@ -23,22 +23,27 @@ export class CashClosingResponseDto {
   periodEnd: Date;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   expectedCash: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   expectedCard: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   expectedTransfer: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   declaredCash: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   difference: string;
 

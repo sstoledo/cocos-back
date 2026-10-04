@@ -15,6 +15,7 @@ export class SaleProductItemResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 }
@@ -32,10 +33,12 @@ export class SaleProductResponseDto {
   quantity: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   unitPriceSnapshot: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   subtotal: string;
 
@@ -67,6 +70,7 @@ export class SaleServiceItemResponseDto {
   description?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   price: string;
 }
@@ -84,10 +88,12 @@ export class SaleServiceResponseDto {
   quantity: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   unitPriceSnapshot: string;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   subtotal: string;
 
@@ -155,6 +161,7 @@ export class SaleResponseDto {
   paymentMethod: 'cash' | 'card' | 'transfer';
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   totalAmount: string;
 

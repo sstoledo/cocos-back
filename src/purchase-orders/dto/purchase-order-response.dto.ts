@@ -38,6 +38,7 @@ export class PurchaseOrderLineResponseDto {
   quantityReceived: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   estimatedCostPrice: string;
 
@@ -56,6 +57,7 @@ export class PurchaseOrderReceiptItemResponseDto {
   quantity: number;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   costPrice: string;
 
@@ -99,6 +101,7 @@ export class PurchaseOrderResponseDto {
   notes?: string | null;
 
   @Expose()
+  @Type(() => String)
   @Transform(({ value }) => String(value))
   estimatedTotal: string;
 
