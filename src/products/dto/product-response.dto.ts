@@ -29,7 +29,7 @@ export class ProductResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   price: string;
 
   @Expose()
@@ -56,7 +56,7 @@ export class ProductResponseDto {
 
   @Expose()
   @Type(() => String)
-  @Transform(({ value }) => String(value))
+  @Transform(({ value }) => Number(value).toFixed(2))
   taxRate: string;
 
   @Expose()

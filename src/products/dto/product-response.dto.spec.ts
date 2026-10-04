@@ -32,9 +32,9 @@ describe('ProductResponseDto', () => {
       excludeExtraneousValues: true,
     });
 
-    expect(response.price).toBe('45');
+    expect(response.price).toBe('45.00');
     expect(typeof response.price).toBe('string');
-    expect(response.taxRate).toBe('21');
+    expect(response.taxRate).toBe('21.00');
     expect(typeof response.taxRate).toBe('string');
   });
 });

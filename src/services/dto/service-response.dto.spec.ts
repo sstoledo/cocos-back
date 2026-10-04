@@ -22,7 +22,7 @@ describe('ServiceResponseDto', () => {
       excludeExtraneousValues: true,
     });
 
-    expect(response.price).toBe('45');
+    expect(response.price).toBe('45.00');
     expect(typeof response.price).toBe('string');
   });
 });

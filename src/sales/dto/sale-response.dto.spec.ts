@@ -29,7 +29,7 @@ describe('SaleResponseDto', () => {
       excludeExtraneousValues: true,
     });
 
-    expect(response.totalAmount).toBe('2500.5');
+    expect(response.totalAmount).toBe('2500.50');
     expect(typeof response.totalAmount).toBe('string');
   });
 });

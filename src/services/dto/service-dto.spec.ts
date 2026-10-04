@@ -197,7 +197,7 @@ describe('Service DTOs', () => {
         code: 'OIL-001',
         name: 'Oil change',
         description: null,
-        price: '25.5',
+        price: '25.50',
         estimatedDuration: null,
         isActive: true,
         createdAt: expect.any(Date),
