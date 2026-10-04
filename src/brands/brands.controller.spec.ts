@@ -23,6 +23,10 @@ describe('BrandsController', () => {
     jest.clearAllMocks();
     brandsService = {
       findAll: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      remove: jest.fn(),
     } as unknown as BrandsService;
     controller = new BrandsController(brandsService);
   });
@@ -56,6 +60,38 @@ describe('BrandsController', () => {
       );
       expect(roles).toHaveLength(6);
     });
+
+    it('allows all authenticated roles for findOne', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        BrandsController.prototype.findOne,
+        BrandsController,
+      ]);
+      expect(roles).toHaveLength(6);
+    });
+
+    it('restricts create to Admin', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        BrandsController.prototype.create,
+        BrandsController,
+      ]);
+      expect(roles).toEqual([RoleName.Admin]);
+    });
+
+    it('restricts update to Admin', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        BrandsController.prototype.update,
+        BrandsController,
+      ]);
+      expect(roles).toEqual([RoleName.Admin]);
+    });
+
+    it('restricts remove to Admin', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        BrandsController.prototype.remove,
+        BrandsController,
+      ]);
+      expect(roles).toEqual([RoleName.Admin]);
+    });
   });
 
   describe('findAll', () => {
@@ -70,6 +106,56 @@ describe('BrandsController', () => {
 
       expect(brandsService.findAll).toHaveBeenCalled();
       expect(result).toEqual(brands);
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns the brand with the requested id', async () => {
+      const brand = { id: 'brand-1', name: 'Shell' };
+      (brandsService.findOne as unknown as jest.Mock).mockResolvedValue(brand);
+
+      const result = await controller.findOne('brand-1');
+
+      expect(brandsService.findOne).toHaveBeenCalledWith('brand-1');
+      expect(result).toEqual(brand);
+    });
+  });
+
+  describe('create', () => {
+    it('creates a brand using the provided dto', async () => {
+      const dto = { name: 'Shell' };
+      const created = { id: 'brand-1', ...dto };
+      (brandsService.create as unknown as jest.Mock).mockResolvedValue(created);
+
+      const result = await controller.create(dto as never);
+
+      expect(brandsService.create).toHaveBeenCalledWith(dto);
+      expect(result).toEqual(created);
+    });
+  });
+
+  describe('update', () => {
+    it('updates a brand using the provided id and dto', async () => {
+      const dto = { name: 'Shell Updated' };
+      const updated = { id: 'brand-1', ...dto };
+      (brandsService.update as unknown as jest.Mock).mockResolvedValue(updated);
+
+      const result = await controller.update('brand-1', dto as never);
+
+      expect(brandsService.update).toHaveBeenCalledWith('brand-1', dto);
+      expect(result).toEqual(updated);
+    });
+  });
+
+  describe('remove', () => {
+    it('deletes the brand with the requested id', async () => {
+      const removed = { id: 'brand-1', name: 'Shell' };
+      (brandsService.remove as unknown as jest.Mock).mockResolvedValue(removed);
+
+      const result = await controller.remove('brand-1');
+
+      expect(brandsService.remove).toHaveBeenCalledWith('brand-1');
+      expect(result).toEqual(removed);
     });
   });
 });
