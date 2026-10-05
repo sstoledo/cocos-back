@@ -30,6 +30,7 @@ model User {
   image         String?
   roleId        String
   role          Role      @relation(fields: [roleId], references: [id])
+  isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
@@ -37,6 +38,8 @@ model User {
   employee      Employee?
   notifications Notification[]
   cashClosings  CashClosing[]
+
+  @@index([isActive])
 }
 
 model Session {
