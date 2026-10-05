@@ -24,7 +24,7 @@ describe('UsersService', () => {
 
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'user-1' },
-      include: { role: true },
+      include: { role: { select: { id: true, name: true } } },
     });
     expect(result).toEqual(user);
   });
