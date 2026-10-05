@@ -41,7 +41,7 @@ export class ProductsService {
 
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: {
         presentation: true,
         brand: true,
@@ -73,7 +73,7 @@ export class ProductsService {
 
   async update(id: string, dto: UpdateProductDto, image?: Express.Multer.File) {
     const product = await this.prisma.product.findUnique({
-      where: { id, isActive: true },
+      where: { id },
     });
     if (!product) {
       throw new NotFoundException();
@@ -105,7 +105,7 @@ export class ProductsService {
 
   async remove(id: string) {
     const product = await this.prisma.product.findUnique({
-      where: { id, isActive: true },
+      where: { id },
     });
     if (!product) {
       throw new NotFoundException();

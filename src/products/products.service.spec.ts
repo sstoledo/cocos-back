@@ -16,7 +16,6 @@ const baseDto = {
   name: 'Engine oil',
   description: 'Synthetic engine oil',
   price: 30,
-  isActive: true,
   presentationId: 'pres-1',
   brandId: 'brand-1',
   categoryId: 'cat-1',
@@ -119,7 +118,7 @@ describe('ProductsService', () => {
       const result = await service.findOne('product-1');
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1', isActive: true },
+        where: { id: 'product-1' },
         ...productInclude,
       });
       expect(result).toMatchObject(product);
@@ -135,7 +134,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'inactive-id', isActive: true },
+        where: { id: 'inactive-id' },
         ...productInclude,
       });
     });
@@ -149,7 +148,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'missing-id', isActive: true },
+        where: { id: 'missing-id' },
         ...productInclude,
       });
     });
@@ -262,7 +261,7 @@ describe('ProductsService', () => {
       const result = await service.update('product-1', dto as never);
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1', isActive: true },
+        where: { id: 'product-1' },
       });
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
@@ -324,7 +323,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'inactive-id', isActive: true },
+        where: { id: 'inactive-id' },
       });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
@@ -338,7 +337,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'missing-id', isActive: true },
+        where: { id: 'missing-id' },
       });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
@@ -404,7 +403,7 @@ describe('ProductsService', () => {
       const result = await service.remove('product-1');
 
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'product-1', isActive: true },
+        where: { id: 'product-1' },
       });
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'product-1' },
@@ -424,7 +423,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'inactive-id', isActive: true },
+        where: { id: 'inactive-id' },
       });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });
@@ -438,7 +437,7 @@ describe('ProductsService', () => {
         NotFoundException
       );
       expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'missing-id', isActive: true },
+        where: { id: 'missing-id' },
       });
       expect(prisma.product.update).not.toHaveBeenCalled();
     });

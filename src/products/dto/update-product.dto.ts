@@ -65,6 +65,7 @@ export class UpdateProductDto {
   notes?: string;
 
   @IsOptional()
+  @Type(() => Boolean)
   @IsBoolean()
   isActive?: boolean;
 }

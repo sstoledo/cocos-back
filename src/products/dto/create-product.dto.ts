@@ -59,6 +59,7 @@ export class CreateProductDto {
   notes?: string;
 
   @IsOptional()
+  @Type(() => Boolean)
   @IsBoolean()
   isActive?: boolean;
 }

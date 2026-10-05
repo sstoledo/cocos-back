@@ -4,6 +4,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateCategoryDto {
@@ -14,6 +15,7 @@ export class UpdateCategoryDto {
   name?: string;
 
   @IsOptional()
+  @ValidateIf((o) => o.parentId !== null)
   @IsUUID()
-  parentId?: string;
+  parentId?: string | null;
 }
