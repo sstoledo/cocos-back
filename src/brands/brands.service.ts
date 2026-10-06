@@ -7,8 +7,8 @@ import type { Brand } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateBrandDto } from './dto/create-brand.dto';
-import type { UpdateBrandDto } from './dto/update-brand.dto';
 import type { ListBrandsQueryDto } from './dto/list-brands-query.dto';
+import type { UpdateBrandDto } from './dto/update-brand.dto';
 
 @Injectable()
 export class BrandsService {

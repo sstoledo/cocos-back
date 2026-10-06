@@ -10,9 +10,9 @@ import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import type { CreateProductDto } from './dto/create-product.dto';
+import type { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
-import type { ListProductsQueryDto } from './dto/list-products-query.dto';
 
 @Injectable()
 export class ProductsService {

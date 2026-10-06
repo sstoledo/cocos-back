@@ -2,8 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateSupplierDto } from './dto/create-supplier.dto';
-import type { UpdateSupplierDto } from './dto/update-supplier.dto';
 import type { ListSuppliersQueryDto } from './dto/list-suppliers-query.dto';
+import type { UpdateSupplierDto } from './dto/update-supplier.dto';
 
 const activeWhere = { isActive: true };
 

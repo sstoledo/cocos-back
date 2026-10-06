@@ -7,8 +7,8 @@ import type { Presentation } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePresentationDto } from './dto/create-presentation.dto';
-import type { UpdatePresentationDto } from './dto/update-presentation.dto';
 import type { ListPresentationsQueryDto } from './dto/list-presentations-query.dto';
+import type { UpdatePresentationDto } from './dto/update-presentation.dto';
 
 @Injectable()
 export class PresentationsService {
