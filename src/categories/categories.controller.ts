@@ -6,12 +6,14 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { ListCategoriesQueryDto } from './dto/list-categories-query.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 
 @Controller('categories')
@@ -28,8 +30,8 @@ export class CategoriesController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll() {
-    return this.categoriesService.findAll();
+  findAll(@Query() queryDto: ListCategoriesQueryDto) {
+    return this.categoriesService.findAll(queryDto);
   }
 
   @Get(':id')

@@ -95,19 +95,22 @@ describe('PresentationsController', () => {
   });
 
   describe('findAll', () => {
-    it('returns the list of presentations from the service', async () => {
-      const presentations = [
-        { id: 'pres-1', name: 'Galón' },
-        { id: 'pres-2', name: 'Botella' },
-      ];
+    it('returns the paginated list of presentations from the service', async () => {
+      const paginatedResult = {
+        data: [
+          { id: 'pres-1', name: 'Galón' },
+          { id: 'pres-2', name: 'Botella' },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
       (presentationsService.findAll as unknown as jest.Mock).mockResolvedValue(
-        presentations
+        paginatedResult
       );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(presentationsService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(presentations);
+      expect(presentationsService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

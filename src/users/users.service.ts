@@ -151,6 +151,12 @@ export class UsersService {
     return new UserResponseDto(rest);
   }
 
+  async findAllRoles() {
+    return this.prisma.role.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
   private handlePrismaError(error: unknown): never {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&

@@ -9,6 +9,7 @@ import {
   ParseFilePipe,
   Patch,
   Post,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -17,6 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 
@@ -34,8 +36,8 @@ export class ProductsController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll() {
-    return this.productsService.findAll();
+  findAll(@Query() queryDto: ListProductsQueryDto) {
+    return this.productsService.findAll(queryDto);
   }
 
   @Get(':id')

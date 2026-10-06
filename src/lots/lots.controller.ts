@@ -6,11 +6,13 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CreateLotDto } from './dto/create-lot.dto';
+import { ListLotsQueryDto } from './dto/list-lots-query.dto';
 import { UpdateLotDto } from './dto/update-lot.dto';
 import { LotsService } from './lots.service';
 
@@ -28,8 +30,8 @@ export class LotsController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll() {
-    return this.lotsService.findAll();
+  findAll(@Query() queryDto: ListLotsQueryDto) {
+    return this.lotsService.findAll(queryDto);
   }
 
   @Get(':id')

@@ -1,9 +1,7 @@
 import {
   IsEmail,
   IsNotEmpty,
-  IsOptional,
   IsString,
-  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -25,7 +23,8 @@ export class CreateUserDto {
   @MaxLength(100)
   password: string;
 
-  @IsUUID()
+  /** Role primary key (cuid), not a UUID. */
+  @IsString()
   @IsNotEmpty()
   roleId: string;
 }

@@ -103,17 +103,22 @@ describe('LotsController', () => {
   });
 
   describe('findAll', () => {
-    it('returns the list of lots from the service', async () => {
-      const lots = [
-        { id: 'lot-1', lotNumber: 'LOT-001' },
-        { id: 'lot-2', lotNumber: 'LOT-002' },
-      ];
-      (lotsService.findAll as unknown as jest.Mock).mockResolvedValue(lots);
+    it('returns the paginated list of lots from the service', async () => {
+      const paginatedResult = {
+        data: [
+          { id: 'lot-1', lotNumber: 'LOT-001' },
+          { id: 'lot-2', lotNumber: 'LOT-002' },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
+      (lotsService.findAll as unknown as jest.Mock).mockResolvedValue(
+        paginatedResult
+      );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(lotsService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(lots);
+      expect(lotsService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

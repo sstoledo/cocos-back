@@ -59,6 +59,7 @@ describe('ProductsService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as PrismaService;
     uploadService = {
@@ -90,16 +91,20 @@ describe('ProductsService', () => {
       (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
         products
       );
+      (prisma.product.count as unknown as jest.Mock).mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.product.findMany).toHaveBeenCalledWith({
         where: activeWhere,
         orderBy: { name: 'asc' },
+        skip: 0,
+        take: 10,
         ...productInclude,
       });
-      expect(result).toMatchObject(products);
-      expect(result[0]).toBeInstanceOf(ProductResponseDto);
+      expect(result.data).toMatchObject(products);
+      expect(result.data[0]).toBeInstanceOf(ProductResponseDto);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
   });
 

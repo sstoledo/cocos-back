@@ -25,16 +25,19 @@ const FIXED_ID = {
   },
 } as const;
 
-const productId = (n: number) =>
-  `clseedproduct${String(n).padStart(9, '0')}`;
-const serviceId = (n: number) =>
-  `clseedservice${String(n).padStart(9, '0')}`;
-const vehicleId = (n: number) =>
-  `clseedvehicle${String(n).padStart(9, '0')}`;
-const lotItemId = (n: number) =>
-  `clseedlotitem${String(n).padStart(9, '0')}`;
+const productId = (n: number) => `clseedproduct${String(n).padStart(9, '0')}`;
+const serviceId = (n: number) => `clseedservice${String(n).padStart(9, '0')}`;
+const vehicleId = (n: number) => `clseedvehicle${String(n).padStart(9, '0')}`;
+const lotItemId = (n: number) => `clseedlotitem${String(n).padStart(9, '0')}`;
 
-const BRAND_NAMES = ['Bosch', 'NGK', 'Mann Filter', 'Shell', 'Castrol', 'Brembo'];
+const BRAND_NAMES = [
+  'Bosch',
+  'NGK',
+  'Mann Filter',
+  'Shell',
+  'Castrol',
+  'Brembo',
+];
 const CATEGORY_NAMES = [
   'Filtros',
   'Aceites',
@@ -81,7 +84,7 @@ async function main() {
     where: { name: { in: PRESENTATION_NAMES } },
   });
   const presentationIdByName = new Map(
-    presentations.map((p) => [p.name, p.id]),
+    presentations.map((p) => [p.name, p.id])
   );
 
   await prisma.supplier.createMany({
@@ -113,11 +116,7 @@ async function main() {
   const suppliers = await prisma.supplier.findMany({
     where: {
       name: {
-        in: [
-          'Repuestos Lima SAC',
-          'AutoPartes del Sur',
-          'Distribuidora Motor',
-        ],
+        in: ['Repuestos Lima SAC', 'AutoPartes del Sur', 'Distribuidora Motor'],
       },
     },
   });
@@ -132,7 +131,7 @@ async function main() {
     presentationName: string,
     brandName: string,
     categoryName: string,
-    description?: string,
+    description?: string
   ) => ({
     id: productId(n),
     code,
@@ -156,7 +155,7 @@ async function main() {
         'Unidad',
         'Bosch',
         'Filtros',
-        'Filtro de aceite para motor a gasolina',
+        'Filtro de aceite para motor a gasolina'
       ),
       product(
         2,
@@ -167,7 +166,7 @@ async function main() {
         'Unidad',
         'Mann Filter',
         'Filtros',
-        'Filtro de aire de alta eficiencia',
+        'Filtro de aire de alta eficiencia'
       ),
       product(
         3,
@@ -177,7 +176,7 @@ async function main() {
         '7750182000035',
         'Unidad',
         'Mann Filter',
-        'Filtros',
+        'Filtros'
       ),
       product(
         4,
@@ -188,7 +187,7 @@ async function main() {
         'Galón',
         'Shell',
         'Aceites',
-        'Aceite sintético para motor',
+        'Aceite sintético para motor'
       ),
       product(
         5,
@@ -198,7 +197,7 @@ async function main() {
         '7750182000059',
         'Litro',
         'Castrol',
-        'Aceites',
+        'Aceites'
       ),
       product(
         6,
@@ -208,7 +207,7 @@ async function main() {
         '7750182000066',
         'Galón',
         'Castrol',
-        'Aceites',
+        'Aceites'
       ),
       product(
         7,
@@ -219,7 +218,7 @@ async function main() {
         'Par',
         'Brembo',
         'Frenos',
-        'Juego de pastillas delanteras',
+        'Juego de pastillas delanteras'
       ),
       product(
         8,
@@ -229,7 +228,7 @@ async function main() {
         '7750182000080',
         'Par',
         'Brembo',
-        'Frenos',
+        'Frenos'
       ),
       product(
         9,
@@ -239,7 +238,7 @@ async function main() {
         '7750182000097',
         'Unidad',
         'Bosch',
-        'Suspensión',
+        'Suspensión'
       ),
       product(
         10,
@@ -249,7 +248,7 @@ async function main() {
         '7750182000103',
         'Caja x10',
         'NGK',
-        'Electricidad',
+        'Electricidad'
       ),
       product(
         11,
@@ -259,7 +258,7 @@ async function main() {
         '7750182000110',
         'Unidad',
         'NGK',
-        'Electricidad',
+        'Electricidad'
       ),
       product(
         12,
@@ -269,7 +268,7 @@ async function main() {
         '7750182000127',
         'Unidad',
         'Bosch',
-        'Motor',
+        'Motor'
       ),
     ],
     skipDuplicates: true,
@@ -408,7 +407,7 @@ async function main() {
     },
   });
   const clientIdByIdentification = new Map(
-    clients.map((c) => [c.identification, c.id]),
+    clients.map((c) => [c.identification, c.id])
   );
 
   const vehicle = (
@@ -418,7 +417,7 @@ async function main() {
     model: string,
     year: number,
     color: string,
-    clientIdentification: string,
+    clientIdentification: string
   ) => ({
     id: vehicleId(n),
     plate,
@@ -477,7 +476,7 @@ async function main() {
     productCode: string,
     quantity: number,
     costPrice: string,
-    expirationDate: string,
+    expirationDate: string
   ) => ({
     id: lotItemId(n),
     lotId: lotIdByNumber.get(lotNumber) as string,

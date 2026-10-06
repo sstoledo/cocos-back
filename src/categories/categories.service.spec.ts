@@ -16,6 +16,7 @@ describe('CategoriesService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as PrismaService;
     service = new CategoriesService(prisma);
@@ -40,14 +41,19 @@ describe('CategoriesService', () => {
       (prisma.category.findMany as unknown as jest.Mock).mockResolvedValue(
         categories
       );
+      (prisma.category.count as unknown as jest.Mock).mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.category.findMany).toHaveBeenCalledWith({
+        where: {},
         orderBy: { name: 'asc' },
+        skip: 0,
+        take: 10,
         include: { parent: true },
       });
-      expect(result).toEqual(categories);
+      expect(result.data).toEqual(categories);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
   });
 

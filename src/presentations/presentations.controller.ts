@@ -6,13 +6,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
-import { CreatePresentationDto } from './dto/create-presentation.dto';
-import { UpdatePresentationDto } from './dto/update-presentation.dto';
 import { PresentationsService } from './presentations.service';
+import { CreatePresentationDto } from './dto/create-presentation.dto';
+import { ListPresentationsQueryDto } from './dto/list-presentations-query.dto';
+import { UpdatePresentationDto } from './dto/update-presentation.dto';
 
 @Controller('presentations')
 @UseGuards(RolesGuard)
@@ -28,8 +30,8 @@ export class PresentationsController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll() {
-    return this.presentationsService.findAll();
+  findAll(@Query() queryDto: ListPresentationsQueryDto) {
+    return this.presentationsService.findAll(queryDto);
   }
 
   @Get(':id')

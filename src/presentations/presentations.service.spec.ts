@@ -16,13 +16,14 @@ describe('PresentationsService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as PrismaService;
     service = new PresentationsService(prisma);
   });
 
   describe('findAll', () => {
-    it('returns all presentations ordered by name', async () => {
+    it('returns all presentations ordered by name with pagination', async () => {
       const presentations = [
         { id: 'pres-2', name: 'Botella' },
         { id: 'pres-1', name: 'Galón' },
@@ -30,13 +31,18 @@ describe('PresentationsService', () => {
       (prisma.presentation.findMany as unknown as jest.Mock).mockResolvedValue(
         presentations
       );
+      (prisma.presentation.count as unknown as jest.Mock).mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.presentation.findMany).toHaveBeenCalledWith({
+        where: {},
         orderBy: { name: 'asc' },
+        skip: 0,
+        take: 10,
       });
-      expect(result).toEqual(presentations);
+      expect(result.data).toEqual(presentations);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
   });
 

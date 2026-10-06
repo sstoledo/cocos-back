@@ -16,25 +16,31 @@ describe('BrandsService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as PrismaService;
     service = new BrandsService(prisma);
   });
 
   describe('findAll', () => {
-    it('returns all brands ordered by name', async () => {
+    it('returns all brands ordered by name with pagination', async () => {
       const brands = [
         { id: 'brand-2', name: 'Mobil' },
         { id: 'brand-1', name: 'Shell' },
       ];
       (prisma.brand.findMany as unknown as jest.Mock).mockResolvedValue(brands);
+      (prisma.brand.count as unknown as jest.Mock).mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.brand.findMany).toHaveBeenCalledWith({
+        where: {},
         orderBy: { name: 'asc' },
+        skip: 0,
+        take: 10,
       });
-      expect(result).toEqual(brands);
+      expect(result.data).toEqual(brands);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
   });
 

@@ -8,16 +8,35 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateCategoryDto } from './dto/create-category.dto';
 import type { UpdateCategoryDto } from './dto/update-category.dto';
+import type { ListCategoriesQueryDto } from './dto/list-categories-query.dto';
 
 @Injectable()
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.category.findMany({
-      orderBy: { name: 'asc' },
-      include: { parent: true },
-    });
+  async findAll(queryDto: ListCategoriesQueryDto) {
+    const { page = 1, limit = 10, q } = queryDto;
+    const where: Prisma.CategoryWhereInput = {};
+
+    if (q !== undefined) {
+      where.name = { contains: q, mode: 'insensitive' };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.category.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { parent: true },
+      }),
+      this.prisma.category.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit, total },
+    };
   }
 
   async findOne(id: string) {

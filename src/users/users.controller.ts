@@ -71,4 +71,10 @@ export class UsersController {
   async assignRole(@Param('id') id: string, @Body() dto: { roleId: string }) {
     return this.usersService.assignRole(id, dto.roleId);
   }
+
+  @Get('roles/all')
+  @Roles(RoleName.Admin)
+  async findAllRoles() {
+    return this.usersService.findAllRoles();
+  }
 }

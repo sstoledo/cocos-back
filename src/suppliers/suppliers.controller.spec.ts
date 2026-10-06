@@ -95,19 +95,22 @@ describe('SuppliersController', () => {
   });
 
   describe('findAll', () => {
-    it('returns the list of suppliers from the service', async () => {
-      const suppliers = [
-        { id: 'supplier-1', name: 'Shell' },
-        { id: 'supplier-2', name: 'Acme Parts' },
-      ];
+    it('returns the paginated list of suppliers from the service', async () => {
+      const paginatedResult = {
+        data: [
+          { id: 'supplier-1', name: 'Shell', isActive: true },
+          { id: 'supplier-2', name: 'Acme Parts', isActive: true },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
       (suppliersService.findAll as unknown as jest.Mock).mockResolvedValue(
-        suppliers
+        paginatedResult
       );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(suppliersService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(suppliers);
+      expect(suppliersService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

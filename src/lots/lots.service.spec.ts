@@ -20,6 +20,7 @@ describe('LotsService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
       lotItem: {
         deleteMany: jest.fn(),
@@ -31,7 +32,7 @@ describe('LotsService', () => {
   });
 
   describe('findAll', () => {
-    it('returns all lots ordered by receivedAt desc with supplier and items', async () => {
+    it('returns all lots ordered by receivedAt desc with supplier and items with pagination', async () => {
       const lots = [
         {
           id: 'lot-1',
@@ -41,14 +42,22 @@ describe('LotsService', () => {
         },
       ];
       (prisma.lot.findMany as unknown as jest.Mock).mockResolvedValue(lots);
+      (prisma.lot.count as unknown as jest.Mock).mockResolvedValue(1);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.lot.findMany).toHaveBeenCalledWith({
+        where: {},
         orderBy: { receivedAt: 'desc' },
-        include: lotInclude,
+        skip: 0,
+        take: 10,
+        include: {
+          supplier: true,
+          items: { include: { product: true } },
+        },
       });
-      expect(result).toEqual(lots);
+      expect(result.data).toEqual(lots);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 1 });
     });
   });
 

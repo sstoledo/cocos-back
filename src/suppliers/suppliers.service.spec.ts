@@ -19,13 +19,14 @@ describe('SuppliersService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
     } as unknown as PrismaService;
     service = new SuppliersService(prisma);
   });
 
   describe('findAll', () => {
-    it('returns only active suppliers ordered by name', async () => {
+    it('returns all suppliers ordered by name with pagination', async () => {
       const suppliers = [
         { id: 'supplier-2', name: 'Acme Parts', isActive: true },
         { id: 'supplier-1', name: 'Shell', isActive: true },
@@ -33,14 +34,18 @@ describe('SuppliersService', () => {
       (prisma.supplier.findMany as unknown as jest.Mock).mockResolvedValue(
         suppliers
       );
+      (prisma.supplier.count as unknown as jest.Mock).mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll({});
 
       expect(prisma.supplier.findMany).toHaveBeenCalledWith({
         where: activeWhere,
         orderBy: { name: 'asc' },
+        skip: 0,
+        take: 10,
       });
-      expect(result).toEqual(suppliers);
+      expect(result.data).toEqual(suppliers);
+      expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
   });
 

@@ -12,6 +12,7 @@ import { UploadService } from '../upload/upload.service';
 import type { CreateProductDto } from './dto/create-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
+import type { ListProductsQueryDto } from './dto/list-products-query.dto';
 
 @Injectable()
 export class ProductsService {
@@ -26,17 +27,44 @@ export class ProductsService {
       this.configService.get<string>('CLOUDINARY_CLOUD_NAME') ?? '';
   }
 
-  async findAll() {
-    const products = await this.prisma.product.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' },
-      include: {
-        presentation: true,
-        brand: true,
-        category: { include: { parent: true } },
-      },
-    });
-    return products.map((product) => this.toResponse(product));
+  async findAll(queryDto: ListProductsQueryDto) {
+    const { page = 1, limit = 10, q, categoryId, brandId } = queryDto;
+    const where: Prisma.ProductWhereInput = { isActive: true };
+
+    if (q !== undefined) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { code: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    if (categoryId !== undefined) {
+      where.categoryId = categoryId;
+    }
+
+    if (brandId !== undefined) {
+      where.brandId = brandId;
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          presentation: true,
+          brand: true,
+          category: { include: { parent: true } },
+        },
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    return {
+      data: data.map((product) => this.toResponse(product)),
+      meta: { page, limit, total },
+    };
   }
 
   async findOne(id: string) {

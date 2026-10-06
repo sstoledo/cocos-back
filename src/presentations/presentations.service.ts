@@ -8,15 +8,34 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreatePresentationDto } from './dto/create-presentation.dto';
 import type { UpdatePresentationDto } from './dto/update-presentation.dto';
+import type { ListPresentationsQueryDto } from './dto/list-presentations-query.dto';
 
 @Injectable()
 export class PresentationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.presentation.findMany({
-      orderBy: { name: 'asc' },
-    });
+  async findAll(queryDto: ListPresentationsQueryDto) {
+    const { page = 1, limit = 10, q } = queryDto;
+    const where: Prisma.PresentationWhereInput = {};
+
+    if (q !== undefined) {
+      where.name = { contains: q, mode: 'insensitive' };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.presentation.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.presentation.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit, total },
+    };
   }
 
   async findOne(id: string) {

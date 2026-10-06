@@ -6,12 +6,14 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { BrandsService } from './brands.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
+import { ListBrandsQueryDto } from './dto/list-brands-query.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 
 @Controller('brands')
@@ -28,8 +30,8 @@ export class BrandsController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll() {
-    return this.brandsService.findAll();
+  findAll(@Query() queryDto: ListBrandsQueryDto) {
+    return this.brandsService.findAll(queryDto);
   }
 
   @Get(':id')

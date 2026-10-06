@@ -95,19 +95,22 @@ describe('CategoriesController', () => {
   });
 
   describe('findAll', () => {
-    it('returns the list of categories from the service', async () => {
-      const categories = [
-        { id: 'cat-1', name: 'Repuestos', parentId: 'cat-2', parent: null },
-        { id: 'cat-2', name: 'Lubricantes', parentId: null, parent: null },
-      ];
+    it('returns the paginated list of categories from the service', async () => {
+      const paginatedResult = {
+        data: [
+          { id: 'cat-1', name: 'Repuestos', parentId: 'cat-2', parent: null },
+          { id: 'cat-2', name: 'Lubricantes', parentId: null, parent: null },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
       (categoriesService.findAll as unknown as jest.Mock).mockResolvedValue(
-        categories
+        paginatedResult
       );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(categoriesService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(categories);
+      expect(categoriesService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

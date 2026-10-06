@@ -95,17 +95,22 @@ describe('BrandsController', () => {
   });
 
   describe('findAll', () => {
-    it('returns the list of brands from the service', async () => {
-      const brands = [
-        { id: 'brand-1', name: 'Shell' },
-        { id: 'brand-2', name: 'Mobil' },
-      ];
-      (brandsService.findAll as unknown as jest.Mock).mockResolvedValue(brands);
+    it('returns the paginated list of brands from the service', async () => {
+      const paginatedResult = {
+        data: [
+          { id: 'brand-1', name: 'Shell' },
+          { id: 'brand-2', name: 'Mobil' },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
+      (brandsService.findAll as unknown as jest.Mock).mockResolvedValue(
+        paginatedResult
+      );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(brandsService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(brands);
+      expect(brandsService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

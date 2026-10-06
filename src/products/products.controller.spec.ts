@@ -152,18 +152,21 @@ describe('ProductsController', () => {
 
   describe('findAll', () => {
     it('returns the list of products from the service', async () => {
-      const products = [
-        { id: 'product-1', name: 'Engine oil', price: '30' },
-        { id: 'product-2', name: 'Brake pads', price: '50' },
-      ];
+      const paginatedResult = {
+        data: [
+          { id: 'product-1', name: 'Engine oil', price: '30' },
+          { id: 'product-2', name: 'Brake pads', price: '50' },
+        ],
+        meta: { page: 1, limit: 10, total: 2 },
+      };
       (productsService.findAll as unknown as jest.Mock).mockResolvedValue(
-        products
+        paginatedResult
       );
 
-      const result = await controller.findAll();
+      const result = await controller.findAll({});
 
-      expect(productsService.findAll).toHaveBeenCalled();
-      expect(result).toEqual(products);
+      expect(productsService.findAll).toHaveBeenCalledWith({});
+      expect(result).toEqual(paginatedResult);
     });
   });
 

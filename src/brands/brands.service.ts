@@ -8,15 +8,34 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateBrandDto } from './dto/create-brand.dto';
 import type { UpdateBrandDto } from './dto/update-brand.dto';
+import type { ListBrandsQueryDto } from './dto/list-brands-query.dto';
 
 @Injectable()
 export class BrandsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.brand.findMany({
-      orderBy: { name: 'asc' },
-    });
+  async findAll(queryDto: ListBrandsQueryDto) {
+    const { page = 1, limit = 10, q } = queryDto;
+    const where: Prisma.BrandWhereInput = {};
+
+    if (q !== undefined) {
+      where.name = { contains: q, mode: 'insensitive' };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.brand.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.brand.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit, total },
+    };
   }
 
   async findOne(id: string) {

@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateLotDto } from './dto/create-lot.dto';
+import type { ListLotsQueryDto } from './dto/list-lots-query.dto';
 import type { UpdateLotDto } from './dto/update-lot.dto';
 
 const lotInclude = {
@@ -12,11 +14,32 @@ const lotInclude = {
 export class LotsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.lot.findMany({
-      orderBy: { receivedAt: 'desc' },
-      include: lotInclude,
-    });
+  async findAll(queryDto: ListLotsQueryDto) {
+    const { page = 1, limit = 10, q } = queryDto;
+    const where: Prisma.LotWhereInput = {};
+
+    if (q !== undefined) {
+      where.lotNumber = { contains: q, mode: 'insensitive' };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.lot.findMany({
+        where,
+        orderBy: { receivedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          supplier: true,
+          items: { include: { product: true } },
+        },
+      }),
+      this.prisma.lot.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit, total },
+    };
   }
 
   async findOne(id: string) {

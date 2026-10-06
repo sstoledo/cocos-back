@@ -31,11 +31,6 @@
     }
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      "dist",
-      "coverage",
-      "prisma/migrations"
-    ]
+    "ignore": ["node_modules", "dist", "coverage", "prisma/migrations"]
   }
 }

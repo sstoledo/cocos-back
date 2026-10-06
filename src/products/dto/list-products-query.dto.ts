@@ -1,14 +1,7 @@
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
-export class ListUsersQueryDto {
+export class ListProductsQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -19,20 +12,20 @@ export class ListUsersQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  limit?: number = 20;
+  limit?: number = 10;
 
   @IsOptional()
   @IsString()
   @MaxLength(100)
   q?: string;
 
-  /** Filters by the Role primary key (a cuid), not by role name. */
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  roleId?: string;
+  categoryId?: string;
 
   @IsOptional()
-  @IsEnum(['true', 'false'])
-  isActive?: 'true' | 'false';
+  @IsString()
+  @MaxLength(100)
+  brandId?: string;
 }
