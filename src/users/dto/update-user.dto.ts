@@ -25,4 +25,13 @@ export class UpdateUserDto {
 
   @IsOptional()
   isActive?: boolean;
+
+  /**
+   * Employee primary key (cuid) to link this user to.
+   * `null` unlinks the user's current employee; absent leaves it unchanged.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  employeeId?: string | null;
 }

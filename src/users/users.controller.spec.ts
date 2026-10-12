@@ -39,4 +39,31 @@ describe('UsersController', () => {
     expect(usersService.findMe).toHaveBeenCalledWith('user-1');
     expect(result).toEqual(user);
   });
+
+  it('delegates create to UsersService.create with the DTO as-is', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'user-1' });
+    usersService = { create } as unknown as UsersService;
+    controller = new UsersController(usersService);
+
+    const dto = {
+      email: 'a@b.com',
+      name: 'A',
+      password: 'password123',
+      roleId: 'role-1',
+      employeeId: 'emp-1',
+    };
+    await controller.create(dto);
+
+    expect(create).toHaveBeenCalledWith(dto);
+  });
+
+  it('delegates update to UsersService.update with id and DTO as-is', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'user-1' });
+    usersService = { update } as unknown as UsersService;
+    controller = new UsersController(usersService);
+
+    await controller.update('user-1', { employeeId: null });
+
+    expect(update).toHaveBeenCalledWith('user-1', { employeeId: null });
+  });
 });

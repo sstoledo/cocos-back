@@ -10,6 +10,11 @@ export class UserResponseDto {
     id: string;
     name: RoleName;
   };
+  employeeId: string | null;
+  employee: {
+    id: string;
+    name: string;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
 
