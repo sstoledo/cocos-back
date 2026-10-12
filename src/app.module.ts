@@ -6,6 +6,7 @@ import { CashClosingsModule } from './cash-closings/cash-closings.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ClientsModule } from './clients/clients.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { EmployeesModule } from './employees/employees.module';
 import { HealthModule } from './health/health.module';
 import { LotsModule } from './lots/lots.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -46,6 +47,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     NotificationsModule,
     DashboardModule,
     CashClosingsModule,
+    EmployeesModule,
   ],
 })
 export class AppModule {}
