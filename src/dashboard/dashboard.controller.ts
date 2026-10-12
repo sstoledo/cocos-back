@@ -4,10 +4,9 @@ import type { RequestWithUser } from '../auth';
 import { Roles, RolesGuard } from '../auth';
 import { DashboardService } from './dashboard.service';
 
-const ALL_ROLES = [
+const DASHBOARD_ROLES = [
   RoleName.Admin,
   RoleName.Reception,
-  RoleName.Mechanic,
   RoleName.Warehouse,
   RoleName.Purchasing,
   RoleName.ReadOnly,
@@ -19,7 +18,7 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('summary')
-  @Roles(...ALL_ROLES)
+  @Roles(...DASHBOARD_ROLES)
   summary(@Req() request: RequestWithUser) {
     return this.dashboardService.summary(request.user.id);
   }

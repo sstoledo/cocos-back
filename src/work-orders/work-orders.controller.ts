@@ -7,9 +7,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
+import type { RequestWithUser } from '../auth';
 import { Roles, RolesGuard } from '../auth';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
@@ -31,8 +33,11 @@ export class WorkOrdersController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findAll(@Query() queryDto: ListWorkOrdersQueryDto) {
-    return this.workOrdersService.findAll(queryDto);
+  findAll(
+    @Query() queryDto: ListWorkOrdersQueryDto,
+    @Req() request: RequestWithUser
+  ) {
+    return this.workOrdersService.findAll(queryDto, request.user);
   }
 
   @Get(':id')
@@ -44,8 +49,8 @@ export class WorkOrdersController {
     RoleName.Purchasing,
     RoleName.ReadOnly
   )
-  findOne(@Param('id') id: string) {
-    return this.workOrdersService.findOne(id);
+  findOne(@Param('id') id: string, @Req() request: RequestWithUser) {
+    return this.workOrdersService.findOne(id, request.user);
   }
 
   @Post()
@@ -64,9 +69,14 @@ export class WorkOrdersController {
   @Roles(RoleName.Admin, RoleName.Reception, RoleName.Mechanic)
   transitionStatus(
     @Param('id') id: string,
-    @Body() dto: TransitionWorkOrderStatusDto
+    @Body() dto: TransitionWorkOrderStatusDto,
+    @Req() request: RequestWithUser
   ) {
-    return this.workOrdersService.transitionStatus(id, dto.status);
+    return this.workOrdersService.transitionStatus(
+      id,
+      dto.status,
+      request.user
+    );
   }
 
   @Delete(':id')

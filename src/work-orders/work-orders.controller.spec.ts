@@ -1,5 +1,6 @@
 import { Reflector } from '@nestjs/core';
 import { RoleName, WorkOrderStatus } from '@prisma/client';
+import type { RequestWithUser } from '../auth';
 import { WorkOrdersController } from './work-orders.controller';
 import type { WorkOrdersService } from './work-orders.service';
 
@@ -22,6 +23,8 @@ describe('WorkOrdersController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     workOrdersService = {
+      findAll: jest.fn(),
+      findOne: jest.fn(),
       transitionStatus: jest.fn(),
     } as unknown as WorkOrdersService;
     controller = new WorkOrdersController(workOrdersService);
@@ -52,20 +55,62 @@ describe('WorkOrdersController', () => {
     });
   });
 
+  describe('findAll', () => {
+    it('delegates to the service with the query and the session user', async () => {
+      const request = {
+        user: { id: 'user-1', role: { name: RoleName.Mechanic } },
+      } as unknown as RequestWithUser;
+      const page = { data: [], meta: { page: 1, limit: 10, total: 0 } };
+      (workOrdersService.findAll as jest.Mock).mockResolvedValue(page);
+
+      const result = await controller.findAll({ page: 1, limit: 10 }, request);
+
+      expect(workOrdersService.findAll).toHaveBeenCalledWith(
+        { page: 1, limit: 10 },
+        request.user
+      );
+      expect(result).toEqual(page);
+    });
+  });
+
+  describe('findOne', () => {
+    it('delegates to the service with the id and the session user', async () => {
+      const request = {
+        user: { id: 'user-1', role: { name: RoleName.Admin } },
+      } as unknown as RequestWithUser;
+      const order = { id: 'wo-1' };
+      (workOrdersService.findOne as jest.Mock).mockResolvedValue(order);
+
+      const result = await controller.findOne('wo-1', request);
+
+      expect(workOrdersService.findOne).toHaveBeenCalledWith(
+        'wo-1',
+        request.user
+      );
+      expect(result).toEqual(order);
+    });
+  });
+
   describe('transitionStatus', () => {
-    it('delegates to the service with the id and target status', async () => {
+    it('delegates to the service with the id, target status and session user', async () => {
+      const request = {
+        user: { id: 'user-1', role: { name: RoleName.Mechanic } },
+      } as unknown as RequestWithUser;
       const updated = { id: 'wo-1', status: 'in_progress' };
       (workOrdersService.transitionStatus as jest.Mock).mockResolvedValue(
         updated
       );
 
-      const result = await controller.transitionStatus('wo-1', {
-        status: WorkOrderStatus.in_progress,
-      });
+      const result = await controller.transitionStatus(
+        'wo-1',
+        { status: WorkOrderStatus.in_progress },
+        request
+      );
 
       expect(workOrdersService.transitionStatus).toHaveBeenCalledWith(
         'wo-1',
-        WorkOrderStatus.in_progress
+        WorkOrderStatus.in_progress,
+        request.user
       );
       expect(result).toEqual(updated);
     });

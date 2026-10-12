@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RoleName } from '@prisma/client';
 import type { RequestWithUser } from '../auth';
@@ -19,10 +19,9 @@ jest.mock('better-auth/node', () => ({
   fromNodeHeaders: jest.fn(),
 }));
 
-const ALL_ROLES = [
+const DASHBOARD_ROLES = [
   RoleName.Admin,
   RoleName.Reception,
-  RoleName.Mechanic,
   RoleName.Warehouse,
   RoleName.Purchasing,
   RoleName.ReadOnly,
@@ -56,13 +55,14 @@ describe('DashboardController', () => {
   describe('roles', () => {
     const reflector = new Reflector();
 
-    it('allows all six roles explicitly for summary', () => {
+    it('allows every role except Mechanic for summary', () => {
       const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
         DashboardController.prototype.summary,
         DashboardController,
       ]);
-      expect(roles).toEqual(expect.arrayContaining(ALL_ROLES));
-      expect(roles).toHaveLength(6);
+      expect(roles).toEqual(expect.arrayContaining(DASHBOARD_ROLES));
+      expect(roles).not.toContain(RoleName.Mechanic);
+      expect(roles).toHaveLength(5);
     });
   });
 
@@ -136,6 +136,46 @@ describe('DashboardController', () => {
         UnauthorizedException
       );
       expect(dashboardService.summary).not.toHaveBeenCalled();
+    });
+    it('throws ForbiddenException when the user is a Mechanic', async () => {
+      (auth.api.getSession as unknown as jest.Mock).mockResolvedValue({
+        user: { id: 'user-mechanic' },
+      });
+      const prisma = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'user-mechanic',
+            role: { name: RoleName.Mechanic },
+          }),
+        },
+      } as unknown as PrismaService;
+      const guard = new RolesGuard(new Reflector(), prisma);
+
+      const context = createContext({ headers: {} });
+
+      await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+        ForbiddenException
+      );
+      expect(dashboardService.summary).not.toHaveBeenCalled();
+    });
+
+    it('allows a non-mechanic role through the guard', async () => {
+      (auth.api.getSession as unknown as jest.Mock).mockResolvedValue({
+        user: { id: 'user-admin' },
+      });
+      const prisma = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'user-admin',
+            role: { name: RoleName.Admin },
+          }),
+        },
+      } as unknown as PrismaService;
+      const guard = new RolesGuard(new Reflector(), prisma);
+
+      const context = createContext({ headers: {} });
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
     });
   });
 });
