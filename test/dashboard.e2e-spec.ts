@@ -193,15 +193,16 @@ describe('Dashboard (e2e)', () => {
   const admin = () => agent('admin');
   const reception = () => agent('reception');
   const mechanic = () => agent('mechanic');
+  const warehouse = () => agent('warehouse');
   const anonymous = () => request.agent(app.getHttpServer());
   const summary = (as: () => ReturnType<typeof request.agent>) =>
     as().get('/api/dashboard/summary');
 
-  // Every authenticated role, keyed by the cookie its session mock resolves.
+  // Roles allowed on the dashboard, keyed by the cookie its session mock
+  // resolves. Mechanic is excluded by design (T1).
   const ROLE_SESSIONS: Array<[RoleName, string]> = [
     [RoleName.Admin, 'admin'],
     [RoleName.Reception, 'reception'],
-    [RoleName.Mechanic, 'mechanic'],
     [RoleName.Warehouse, 'warehouse'],
     [RoleName.Purchasing, 'purchasing'],
     [RoleName.ReadOnly, 'readonly'],
@@ -253,6 +254,13 @@ describe('Dashboard (e2e)', () => {
       const response = await anonymous().get('/api/dashboard/summary');
 
       expect(response.status).toBe(401);
+    });
+
+    it('returns 403 for a mechanic', async () => {
+      const response = await mechanic().get('/api/dashboard/summary');
+
+      expect(response.status).toBe(403);
+      expect(prisma.sale.count).not.toHaveBeenCalled();
     });
 
     it('ignores query params — v1 windows are fixed', async () => {
@@ -315,7 +323,7 @@ describe('Dashboard (e2e)', () => {
       seedSale(START_OF_TODAY);
       seedWorkOrder(WorkOrderStatus.pending);
       seedNotification('user-admin');
-      seedNotification('user-mechanic');
+      seedNotification('user-warehouse');
 
       const bodies: Array<Row> = [];
       for (const [, session] of ROLE_SESSIONS) {
@@ -326,7 +334,7 @@ describe('Dashboard (e2e)', () => {
 
       // Own-scoped metric differs per caller; every global KPI is shared.
       expect(bodies.map((body) => body.notificationsUnread)).toEqual([
-        1, 0, 1, 0, 0, 0,
+        1, 0, 1, 0, 0,
       ]);
       for (const body of bodies) {
         expect(body.salesTodayCount).toBe(1);
@@ -476,22 +484,22 @@ describe('Dashboard (e2e)', () => {
 
       const adminResponse = await summary(admin);
       const receptionResponse = await summary(reception);
-      const mechanicResponse = await summary(mechanic);
+      const warehouseResponse = await summary(warehouse);
 
       expect(adminResponse.body.notificationsUnread).toBe(2);
       expect(receptionResponse.body.notificationsUnread).toBe(2);
-      expect(mechanicResponse.body.notificationsUnread).toBe(0);
+      expect(warehouseResponse.body.notificationsUnread).toBe(0);
     });
 
     it('scopes the count to the authenticated caller id', async () => {
-      seedNotification('user-mechanic');
+      seedNotification('user-warehouse');
       seedNotification('user-admin');
 
-      const response = await summary(mechanic);
+      const response = await summary(warehouse);
 
       expect(response.body.notificationsUnread).toBe(1);
       expect(prisma.notification.count).toHaveBeenCalledWith({
-        where: { userId: 'user-mechanic', readAt: null },
+        where: { userId: 'user-warehouse', readAt: null },
       });
     });
   });

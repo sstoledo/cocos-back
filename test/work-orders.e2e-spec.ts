@@ -29,6 +29,11 @@ const receptionUser = {
   role: { name: RoleName.Reception },
 };
 const mechanicUser = { id: 'user-mechanic', role: { name: RoleName.Mechanic } };
+// Mechanic without a linked Employee record: sees no work orders.
+const unlinkedMechanicUser = {
+  id: 'user-mechanic-solo',
+  role: { name: RoleName.Mechanic },
+};
 
 const CLIENT_ID = 'clclient00000000000000001';
 const CLIENT_2_ID = 'clclient00000000000000002';
@@ -163,7 +168,13 @@ describe('Work Orders (e2e)', () => {
     const workOrderProducts: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
     const employees: Array<Record<string, unknown>> = [
-      { id: EMPLOYEE_ID, name: 'Juan Pérez', isActive: true, deletedAt: null },
+      {
+        id: EMPLOYEE_ID,
+        name: 'Juan Pérez',
+        userId: mechanicUser.id,
+        isActive: true,
+        deletedAt: null,
+      },
       {
         id: EMPLOYEE_INACTIVE_ID,
         name: 'Empleado Inactivo',
@@ -277,7 +288,9 @@ describe('Work Orders (e2e)', () => {
         findUnique: jest.fn(({ where }) => {
           const found = employees.find(
             (employee) =>
-              employee.id === where.id &&
+              (where.id === undefined || employee.id === where.id) &&
+              (where.userId === undefined ||
+                employee.userId === where.userId) &&
               (where.isActive === undefined ||
                 employee.isActive === where.isActive)
           );
@@ -348,6 +361,9 @@ describe('Work Orders (e2e)', () => {
               (wo.orderNumber as string).toLowerCase().includes(query)
             );
           }
+          if (where?.employeeId !== undefined) {
+            result = result.filter((wo) => wo.employeeId === where.employeeId);
+          }
           return result.slice(skip, skip + take).map((wo) => ({
             ...wo,
             services: linesFor(wo.id as string),
@@ -365,7 +381,10 @@ describe('Work Orders (e2e)', () => {
           const found = workOrders.find(
             (wo) =>
               wo.id === where.id &&
-              (where.isActive === undefined || wo.isActive === where.isActive)
+              (where.isActive === undefined ||
+                wo.isActive === where.isActive) &&
+              (where.employeeId === undefined ||
+                wo.employeeId === where.employeeId)
           );
           if (!found) return null;
           return {
@@ -411,6 +430,9 @@ describe('Work Orders (e2e)', () => {
             result = result.filter((wo) =>
               (wo.orderNumber as string).toLowerCase().includes(query)
             );
+          }
+          if (where?.employeeId !== undefined) {
+            result = result.filter((wo) => wo.employeeId === where.employeeId);
           }
           return result.length;
         }),
@@ -545,13 +567,14 @@ describe('Work Orders (e2e)', () => {
           if (where.id === adminUser.id) return adminUser;
           if (where.id === receptionUser.id) return receptionUser;
           if (where.id === mechanicUser.id) return mechanicUser;
+          if (where.id === unlinkedMechanicUser.id) return unlinkedMechanicUser;
           return null;
         }),
         // B11.4: createForRole resolves recipients by role inside the
         // transition transaction.
         findMany: jest.fn(({ where }) => {
           const roles = where?.role?.name?.in as Array<RoleName> | undefined;
-          return [adminUser, receptionUser, mechanicUser]
+          return [adminUser, receptionUser, mechanicUser, unlinkedMechanicUser]
             .filter((user) => !roles || roles.includes(user.role.name))
             .map((user) => ({ id: user.id }));
         }),
@@ -568,6 +591,8 @@ describe('Work Orders (e2e)', () => {
           return { user: { id: adminUser.id } };
         if (cookie.includes('session=reception'))
           return { user: { id: receptionUser.id } };
+        if (cookie.includes('session=mechanic-solo'))
+          return { user: { id: unlinkedMechanicUser.id } };
         if (cookie.includes('session=mechanic'))
           return { user: { id: mechanicUser.id } };
         return null;
@@ -603,6 +628,8 @@ describe('Work Orders (e2e)', () => {
     request.agent(app.getHttpServer()).set('Cookie', 'session=reception');
   const mechanic = () =>
     request.agent(app.getHttpServer()).set('Cookie', 'session=mechanic');
+  const unlinkedMechanic = () =>
+    request.agent(app.getHttpServer()).set('Cookie', 'session=mechanic-solo');
   const anonymous = () => request.agent(app.getHttpServer());
 
   const createWorkOrder = (agent: ReturnType<typeof admin>) =>
@@ -940,14 +967,14 @@ describe('Work Orders (e2e)', () => {
           services: [{ serviceId: SERVICE_2_ID, quantity: 1 }],
         });
 
-      const response = await mechanic().get('/api/work-orders?page=1&limit=1');
+      const response = await admin().get('/api/work-orders?page=1&limit=1');
 
       expect(response.status).toBe(200);
       expect(response.body.meta).toEqual({ page: 1, limit: 1, total: 2 });
       expect(response.body.data).toHaveLength(1);
       expect(response.body.data[0].services.length).toBeGreaterThan(0);
 
-      const pageTwo = await mechanic().get('/api/work-orders?page=2&limit=1');
+      const pageTwo = await admin().get('/api/work-orders?page=2&limit=1');
       expect(pageTwo.status).toBe(200);
       expect(pageTwo.body.data).toHaveLength(1);
     });
@@ -963,7 +990,7 @@ describe('Work Orders (e2e)', () => {
         });
 
       const year = new Date().getFullYear();
-      const response = await mechanic().get(
+      const response = await admin().get(
         `/api/work-orders?query=OC-${year}-000001`
       );
 
@@ -976,7 +1003,7 @@ describe('Work Orders (e2e)', () => {
       await createWorkOrder(admin());
       await admin().delete('/api/work-orders/wo-1');
 
-      const response = await mechanic().get('/api/work-orders');
+      const response = await admin().get('/api/work-orders');
 
       expect(response.status).toBe(200);
       expect(response.body.meta.total).toBe(0);
@@ -994,7 +1021,7 @@ describe('Work Orders (e2e)', () => {
     it('returns a work order with line items and total', async () => {
       await createWorkOrder(admin());
 
-      const response = await mechanic().get('/api/work-orders/wo-1');
+      const response = await admin().get('/api/work-orders/wo-1');
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
@@ -1020,7 +1047,7 @@ describe('Work Orders (e2e)', () => {
           products: [{ productId: PRODUCT_ID, quantity: 1, unitPrice: 80.5 }],
         });
 
-      const response = await mechanic().get('/api/work-orders/wo-1');
+      const response = await admin().get('/api/work-orders/wo-1');
 
       expect(response.status).toBe(200);
       expect(response.body.totalAmount).toBe('230.50');
@@ -1043,13 +1070,74 @@ describe('Work Orders (e2e)', () => {
       await createWorkOrder(admin());
       await admin().delete('/api/work-orders/wo-1');
 
-      const deleted = await mechanic().get('/api/work-orders/wo-1');
+      const deleted = await admin().get('/api/work-orders/wo-1');
       expect(deleted.status).toBe(404);
       expect(deleted.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
 
       const missing = await mechanic().get('/api/work-orders/wo-999');
       expect(missing.status).toBe(404);
       expect(missing.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+    });
+  });
+
+  describe('mechanic visibility (T1)', () => {
+    const createAssignedToMechanic = () =>
+      admin()
+        .post('/api/work-orders')
+        .send({
+          clientId: CLIENT_ID,
+          vehicleId: VEHICLE_ID,
+          employeeId: EMPLOYEE_ID,
+          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+        });
+
+    it('lists only the work orders assigned to the linked employee', async () => {
+      await createAssignedToMechanic();
+      await createWorkOrder(admin());
+
+      const response = await mechanic().get('/api/work-orders');
+
+      expect(response.status).toBe(200);
+      expect(response.body.meta).toEqual({ page: 1, limit: 10, total: 1 });
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].employee).toEqual({
+        id: EMPLOYEE_ID,
+        name: 'Juan Pérez',
+      });
+
+      const adminList = await admin().get('/api/work-orders');
+      expect(adminList.body.meta.total).toBe(2);
+    });
+
+    it('opens an assigned order but gets 404 WORK_ORDER_NOT_FOUND for one assigned to no one', async () => {
+      await createAssignedToMechanic();
+      await createWorkOrder(admin());
+
+      const assigned = await mechanic().get('/api/work-orders/wo-1');
+      expect(assigned.status).toBe(200);
+      expect(assigned.body.id).toBe('wo-1');
+
+      const unassigned = await mechanic().get('/api/work-orders/wo-2');
+      expect(unassigned.status).toBe(404);
+      expect(unassigned.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+
+      const adminDetail = await admin().get('/api/work-orders/wo-2');
+      expect(adminDetail.status).toBe(200);
+    });
+
+    it('returns an empty list and 404 on detail for a mechanic without a linked employee', async () => {
+      await createAssignedToMechanic();
+
+      const list = await unlinkedMechanic().get('/api/work-orders');
+      expect(list.status).toBe(200);
+      expect(list.body).toEqual({
+        data: [],
+        meta: { page: 1, limit: 10, total: 0 },
+      });
+
+      const detail = await unlinkedMechanic().get('/api/work-orders/wo-1');
+      expect(detail.status).toBe(404);
+      expect(detail.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
     });
   });
 
@@ -1407,7 +1495,7 @@ describe('Work Orders (e2e)', () => {
         ).toBe(1);
         expect(stockMovements).toHaveLength(0);
 
-        const current = await mechanic().get('/api/work-orders/wo-1');
+        const current = await admin().get('/api/work-orders/wo-1');
         expect(current.body.status).toBe('in_progress');
       });
 
@@ -1581,7 +1669,7 @@ describe('Work Orders (e2e)', () => {
         name: 'Sucursal Central',
       });
 
-      const listed = await mechanic().get('/api/work-orders');
+      const listed = await admin().get('/api/work-orders');
       expect(listed.status).toBe(200);
       expect(listed.body.data[0].branch).toEqual({
         id: BRANCH_ID,
@@ -1659,12 +1747,12 @@ describe('Work Orders (e2e)', () => {
       expect(created.body.client).toEqual(expectedClient);
       expect(created.body.vehicle).toEqual(expectedVehicle);
 
-      const listed = await mechanic().get('/api/work-orders');
+      const listed = await admin().get('/api/work-orders');
       expect(listed.status).toBe(200);
       expect(listed.body.data[0].client).toEqual(expectedClient);
       expect(listed.body.data[0].vehicle).toEqual(expectedVehicle);
 
-      const detail = await mechanic().get('/api/work-orders/wo-1');
+      const detail = await admin().get('/api/work-orders/wo-1');
       expect(detail.status).toBe(200);
       expect(detail.body.client).toEqual(expectedClient);
       expect(detail.body.vehicle).toEqual(expectedVehicle);
@@ -1705,7 +1793,7 @@ describe('Work Orders (e2e)', () => {
       expect(response.body).toMatchObject({ id: 'wo-1', isActive: false });
       expect(response.body.deletedAt).toBeDefined();
 
-      const getResponse = await mechanic().get('/api/work-orders/wo-1');
+      const getResponse = await admin().get('/api/work-orders/wo-1');
       expect(getResponse.status).toBe(404);
     });
 
@@ -1723,7 +1811,7 @@ describe('Work Orders (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({ id: 'wo-1', isActive: false });
 
-      const getResponse = await mechanic().get('/api/work-orders/wo-1');
+      const getResponse = await admin().get('/api/work-orders/wo-1');
       expect(getResponse.status).toBe(404);
       expect(getResponse.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
     });

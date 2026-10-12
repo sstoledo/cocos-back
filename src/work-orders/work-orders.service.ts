@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, RoleName, WorkOrderStatus } from '@prisma/client';
+import type { Role, User } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { ClientsService } from '../clients/clients.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -106,12 +107,23 @@ export class WorkOrdersService {
     return this.toResponse(workOrder);
   }
 
-  async findAll(queryDto: ListWorkOrdersQueryDto) {
+  async findAll(
+    queryDto: ListWorkOrdersQueryDto,
+    user?: User & { role: Role }
+  ) {
     const { query, page = 1, limit = 10 } = queryDto;
     const where: Prisma.WorkOrderWhereInput = { isActive: true };
 
     if (query) {
       where.orderNumber = { contains: query, mode: 'insensitive' };
+    }
+
+    if (user?.role.name === RoleName.Mechanic) {
+      const employeeId = await this.findMechanicEmployeeId(user.id);
+      if (!employeeId) {
+        return { data: [], meta: { page, limit, total: 0 } };
+      }
+      where.employeeId = employeeId;
     }
 
     const [data, total] = await Promise.all([
@@ -131,18 +143,39 @@ export class WorkOrdersService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: User & { role: Role }) {
+    const where: Prisma.WorkOrderWhereUniqueInput = { id, isActive: true };
+
+    if (user?.role.name === RoleName.Mechanic) {
+      const employeeId = await this.findMechanicEmployeeId(user.id);
+      if (!employeeId) {
+        throw this.workOrderNotFound();
+      }
+      where.employeeId = employeeId;
+    }
+
     const workOrder = await this.prisma.workOrder.findUnique({
-      where: { id, isActive: true },
+      where,
       include: WORK_ORDER_INCLUDE,
     });
     if (!workOrder) {
-      throw new NotFoundException({
-        message: 'Work order not found',
-        errorCode: 'WORK_ORDER_NOT_FOUND',
-      });
+      throw this.workOrderNotFound();
     }
     return this.toResponse(workOrder);
+  }
+
+  private workOrderNotFound(): NotFoundException {
+    return new NotFoundException({
+      message: 'Work order not found',
+      errorCode: 'WORK_ORDER_NOT_FOUND',
+    });
+  }
+
+  private async findMechanicEmployeeId(userId: string): Promise<string | null> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { userId, isActive: true },
+    });
+    return employee?.id ?? null;
   }
 
   async update(id: string, dto: UpdateWorkOrderDto) {

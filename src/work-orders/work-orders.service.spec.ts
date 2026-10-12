@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import type { Role, User } from '@prisma/client';
 import {
   NotificationType,
   Prisma,
@@ -1214,6 +1215,151 @@ describe('WorkOrdersService', () => {
         response: expect.objectContaining({
           errorCode: 'WORK_ORDER_NOT_FOUND',
         }),
+      });
+    });
+  });
+
+  describe('mechanic visibility', () => {
+    const mechanicUser = {
+      id: 'user-mech-1',
+      role: { name: RoleName.Mechanic },
+    } as unknown as User & { role: Role };
+    const adminUser = {
+      id: 'user-admin-1',
+      role: { name: RoleName.Admin },
+    } as unknown as User & { role: Role };
+    const linkedEmployee = { ...employeeRecord, userId: 'user-mech-1' };
+
+    describe('findAll', () => {
+      it('scopes the list to work orders assigned to the linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+          linkedEmployee
+        );
+        (prisma.workOrder.findMany as jest.Mock).mockResolvedValue([
+          { ...workOrderRecord, employeeId: 'emp-1', services: [] },
+        ]);
+        (prisma.workOrder.count as jest.Mock).mockResolvedValue(1);
+
+        const result = await service.findAll(
+          { page: 1, limit: 10 },
+          mechanicUser
+        );
+
+        expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+          where: { userId: 'user-mech-1', isActive: true },
+        });
+        const expectedWhere = { isActive: true, employeeId: 'emp-1' };
+        expect(prisma.workOrder.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expectedWhere })
+        );
+        expect(prisma.workOrder.count).toHaveBeenCalledWith({
+          where: expectedWhere,
+        });
+        expect(result.meta).toEqual({ page: 1, limit: 10, total: 1 });
+        expect(result.data).toHaveLength(1);
+      });
+
+      it('returns an empty page without querying work orders when the mechanic has no linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+
+        const result = await service.findAll(
+          { page: 2, limit: 5 },
+          mechanicUser
+        );
+
+        expect(result).toEqual({
+          data: [],
+          meta: { page: 2, limit: 5, total: 0 },
+        });
+        expect(prisma.workOrder.findMany).not.toHaveBeenCalled();
+        expect(prisma.workOrder.count).not.toHaveBeenCalled();
+      });
+
+      it('keeps full visibility for non-mechanic roles', async () => {
+        (prisma.workOrder.findMany as jest.Mock).mockResolvedValue([
+          { ...workOrderRecord, services: [] },
+        ]);
+        (prisma.workOrder.count as jest.Mock).mockResolvedValue(1);
+
+        const result = await service.findAll({ page: 1, limit: 10 }, adminUser);
+
+        expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+        expect(prisma.workOrder.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { isActive: true } })
+        );
+        expect(result.meta.total).toBe(1);
+      });
+    });
+
+    describe('findOne', () => {
+      it('scopes the lookup to the work orders assigned to the linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+          linkedEmployee
+        );
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+          ...workOrderRecord,
+          employeeId: 'emp-1',
+          services: [],
+        });
+
+        const result = await service.findOne('wo-1', mechanicUser);
+
+        expect(prisma.workOrder.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'wo-1', isActive: true, employeeId: 'emp-1' },
+          })
+        );
+        expect(result.id).toBe('wo-1');
+      });
+
+      it('throws NotFoundException WORK_ORDER_NOT_FOUND when the order is assigned to another employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+          linkedEmployee
+        );
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+        await expect(service.findOne('wo-9', mechanicUser)).rejects.toThrow(
+          NotFoundException
+        );
+        await expect(
+          service.findOne('wo-9', mechanicUser)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'WORK_ORDER_NOT_FOUND',
+          }),
+        });
+      });
+
+      it('throws NotFoundException WORK_ORDER_NOT_FOUND without querying when the mechanic has no linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+
+        await expect(service.findOne('wo-1', mechanicUser)).rejects.toThrow(
+          NotFoundException
+        );
+        await expect(
+          service.findOne('wo-1', mechanicUser)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'WORK_ORDER_NOT_FOUND',
+          }),
+        });
+        expect(prisma.workOrder.findUnique).not.toHaveBeenCalled();
+      });
+
+      it('keeps the unscoped lookup for non-mechanic roles', async () => {
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+          ...workOrderRecord,
+          services: [],
+        });
+
+        await service.findOne('wo-1', adminUser);
+
+        expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+        expect(prisma.workOrder.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'wo-1', isActive: true },
+          })
+        );
       });
     });
   });
