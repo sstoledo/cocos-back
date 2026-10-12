@@ -1362,6 +1362,130 @@ describe('WorkOrdersService', () => {
         );
       });
     });
+
+    describe('transitionStatus', () => {
+      const orderAt = (status: string, employeeId: string | null) => ({
+        ...workOrderRecord,
+        status,
+        employeeId,
+        products: [],
+      });
+
+      const fullRecordAt = (status: string, employeeId: string | null) => ({
+        ...workOrderRecord,
+        status,
+        employeeId,
+        services: [],
+        products: [],
+      });
+
+      it('transitions an order assigned to the linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+          linkedEmployee
+        );
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderAt('pending', 'emp-1'))
+          .mockResolvedValueOnce(fullRecordAt('in_progress', 'emp-1'));
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        const result = await service.transitionStatus(
+          'wo-1',
+          WorkOrderStatus.in_progress,
+          mechanicUser
+        );
+
+        expect(prisma.employee.findUnique).toHaveBeenCalledWith({
+          where: { userId: 'user-mech-1', isActive: true },
+        });
+        expect(prisma.workOrder.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'wo-1', isActive: true, employeeId: 'emp-1' },
+          })
+        );
+        expect(prisma.workOrder.updateMany).toHaveBeenCalledWith({
+          where: { id: 'wo-1', status: 'pending' },
+          data: { status: 'in_progress' },
+        });
+        expect(result).toMatchObject({ id: 'wo-1', status: 'in_progress' });
+      });
+
+      it('throws NotFoundException WORK_ORDER_NOT_FOUND when the order is assigned to another employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(
+          linkedEmployee
+        );
+        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+        await expect(
+          service.transitionStatus(
+            'wo-1',
+            WorkOrderStatus.in_progress,
+            mechanicUser
+          )
+        ).rejects.toThrow(NotFoundException);
+        await expect(
+          service.transitionStatus(
+            'wo-1',
+            WorkOrderStatus.in_progress,
+            mechanicUser
+          )
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'WORK_ORDER_NOT_FOUND',
+          }),
+        });
+        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('throws NotFoundException WORK_ORDER_NOT_FOUND without querying when the mechanic has no linked employee', async () => {
+        (prisma.employee.findUnique as jest.Mock).mockResolvedValue(null);
+
+        await expect(
+          service.transitionStatus(
+            'wo-1',
+            WorkOrderStatus.in_progress,
+            mechanicUser
+          )
+        ).rejects.toThrow(NotFoundException);
+        await expect(
+          service.transitionStatus(
+            'wo-1',
+            WorkOrderStatus.in_progress,
+            mechanicUser
+          )
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'WORK_ORDER_NOT_FOUND',
+          }),
+        });
+        expect(prisma.workOrder.findUnique).not.toHaveBeenCalled();
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('keeps the unscoped transition for non-mechanic roles', async () => {
+        (prisma.workOrder.findUnique as jest.Mock)
+          .mockResolvedValueOnce(orderAt('pending', null))
+          .mockResolvedValueOnce(fullRecordAt('in_progress', null));
+        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
+          count: 1,
+        });
+
+        const result = await service.transitionStatus(
+          'wo-1',
+          WorkOrderStatus.in_progress,
+          adminUser
+        );
+
+        expect(prisma.employee.findUnique).not.toHaveBeenCalled();
+        expect(prisma.workOrder.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'wo-1', isActive: true },
+          })
+        );
+        expect(result.status).toBe('in_progress');
+      });
+    });
   });
 
   describe('update', () => {

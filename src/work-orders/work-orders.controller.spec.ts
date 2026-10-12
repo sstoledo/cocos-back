@@ -92,19 +92,25 @@ describe('WorkOrdersController', () => {
   });
 
   describe('transitionStatus', () => {
-    it('delegates to the service with the id and target status', async () => {
+    it('delegates to the service with the id, target status and session user', async () => {
+      const request = {
+        user: { id: 'user-1', role: { name: RoleName.Mechanic } },
+      } as unknown as RequestWithUser;
       const updated = { id: 'wo-1', status: 'in_progress' };
       (workOrdersService.transitionStatus as jest.Mock).mockResolvedValue(
         updated
       );
 
-      const result = await controller.transitionStatus('wo-1', {
-        status: WorkOrderStatus.in_progress,
-      });
+      const result = await controller.transitionStatus(
+        'wo-1',
+        { status: WorkOrderStatus.in_progress },
+        request
+      );
 
       expect(workOrdersService.transitionStatus).toHaveBeenCalledWith(
         'wo-1',
-        WorkOrderStatus.in_progress
+        WorkOrderStatus.in_progress,
+        request.user
       );
       expect(result).toEqual(updated);
     });

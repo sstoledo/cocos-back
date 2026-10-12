@@ -286,18 +286,33 @@ export class WorkOrdersService {
     return this.toResponse(updated);
   }
 
-  async transitionStatus(id: string, to: WorkOrderStatus) {
+  async transitionStatus(
+    id: string,
+    to: WorkOrderStatus,
+    user?: User & { role: Role }
+  ) {
+    let mechanicEmployeeId: string | null = null;
+    if (user?.role.name === RoleName.Mechanic) {
+      mechanicEmployeeId = await this.findMechanicEmployeeId(user.id);
+      if (!mechanicEmployeeId) {
+        throw this.workOrderNotFound();
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const order = await tx.workOrder.findUnique({
-        where: { id, isActive: true },
+        where: {
+          id,
+          isActive: true,
+          ...(mechanicEmployeeId !== null && {
+            employeeId: mechanicEmployeeId,
+          }),
+        },
         include: { products: true },
       });
 
       if (!order) {
-        throw new NotFoundException({
-          message: 'Work order not found',
-          errorCode: 'WORK_ORDER_NOT_FOUND',
-        });
+        throw this.workOrderNotFound();
       }
 
       if (!ALLOWED_TRANSITIONS[order.status].includes(to)) {

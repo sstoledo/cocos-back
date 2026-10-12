@@ -69,9 +69,14 @@ export class WorkOrdersController {
   @Roles(RoleName.Admin, RoleName.Reception, RoleName.Mechanic)
   transitionStatus(
     @Param('id') id: string,
-    @Body() dto: TransitionWorkOrderStatusDto
+    @Body() dto: TransitionWorkOrderStatusDto,
+    @Req() request: RequestWithUser
   ) {
-    return this.workOrdersService.transitionStatus(id, dto.status);
+    return this.workOrdersService.transitionStatus(
+      id,
+      dto.status,
+      request.user
+    );
   }
 
   @Delete(':id')

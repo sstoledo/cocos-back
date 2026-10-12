@@ -49,6 +49,8 @@ const PRODUCT_2_ID = 'clproduct0000000000000002';
 const PRODUCT_INACTIVE_ID = 'clproductinactive00000001';
 const EMPLOYEE_ID = 'clemployee000000000000001';
 const EMPLOYEE_INACTIVE_ID = 'clemployeeinactive0000001';
+// T1b: active employee not linked to any user (another mechanic's orders).
+const EMPLOYEE_OTHER_ID = 'clemployeeother0000000001';
 const BRANCH_ID = 'clbranch00000000000000001';
 const BRANCH_INACTIVE_ID = 'clbranchinactive000000001';
 
@@ -180,6 +182,12 @@ describe('Work Orders (e2e)', () => {
         name: 'Empleado Inactivo',
         isActive: false,
         deletedAt: new Date(),
+      },
+      {
+        id: EMPLOYEE_OTHER_ID,
+        name: 'Otro Mecánico',
+        isActive: true,
+        deletedAt: null,
       },
     ];
     const branches: Array<Record<string, unknown>> = [
@@ -643,6 +651,19 @@ describe('Work Orders (e2e)', () => {
       ],
     });
 
+  // T1b: a Mechanic may only transition orders assigned to their linked
+  // Employee — use this helper for any test where mechanic() drives status.
+  const createAssignedToMechanic = () =>
+    admin()
+      .post('/api/work-orders')
+      .send({
+        clientId: CLIENT_ID,
+        vehicleId: VEHICLE_ID,
+        employeeId: EMPLOYEE_ID,
+        description: 'Oil change and brake check',
+        services: [{ serviceId: SERVICE_ID, quantity: 1 }],
+      });
+
   describe('POST /api/work-orders', () => {
     it('creates a work order with sequential order number and price snapshots', async () => {
       const year = new Date().getFullYear();
@@ -1081,16 +1102,6 @@ describe('Work Orders (e2e)', () => {
   });
 
   describe('mechanic visibility (T1)', () => {
-    const createAssignedToMechanic = () =>
-      admin()
-        .post('/api/work-orders')
-        .send({
-          clientId: CLIENT_ID,
-          vehicleId: VEHICLE_ID,
-          employeeId: EMPLOYEE_ID,
-          services: [{ serviceId: SERVICE_ID, quantity: 1 }],
-        });
-
     it('lists only the work orders assigned to the linked employee', async () => {
       await createAssignedToMechanic();
       await createWorkOrder(admin());
@@ -1138,6 +1149,60 @@ describe('Work Orders (e2e)', () => {
       const detail = await unlinkedMechanic().get('/api/work-orders/wo-1');
       expect(detail.status).toBe(404);
       expect(detail.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+    });
+  });
+
+  describe('mechanic status transitions (T1b)', () => {
+    it('transitions its own assigned order', async () => {
+      await createAssignedToMechanic();
+
+      const response = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('in_progress');
+    });
+
+    it('returns 404 WORK_ORDER_NOT_FOUND when transitioning an order assigned to no one or another employee', async () => {
+      await createWorkOrder(admin());
+
+      const unassigned = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(unassigned.status).toBe(404);
+      expect(unassigned.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+
+      const reassigned = await admin()
+        .patch('/api/work-orders/wo-1')
+        .send({ employeeId: EMPLOYEE_OTHER_ID });
+      expect(reassigned.status).toBe(200);
+
+      const otherEmployee = await mechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(otherEmployee.status).toBe(404);
+      expect(otherEmployee.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+
+      // Admin remains unaffected: the same order transitions fine.
+      const adminTransition = await admin()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      expect(adminTransition.status).toBe(200);
+      expect(adminTransition.body.status).toBe('in_progress');
+    });
+
+    it('returns 404 WORK_ORDER_NOT_FOUND for a mechanic without a linked employee', async () => {
+      await createAssignedToMechanic();
+      (prisma.workOrder.findUnique as jest.Mock).mockClear();
+
+      const response = await unlinkedMechanic()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+      expect(prisma.workOrder.findUnique).not.toHaveBeenCalled();
     });
   });
 
@@ -1311,7 +1376,7 @@ describe('Work Orders (e2e)', () => {
 
   describe('PATCH /api/work-orders/:id/status', () => {
     it('transitions pending → in_progress as a mechanic with no stock movements (S1)', async () => {
-      await createWorkOrder(admin());
+      await createAssignedToMechanic();
 
       const response = await mechanic()
         .patch('/api/work-orders/wo-1/status')
@@ -1358,7 +1423,7 @@ describe('Work Orders (e2e)', () => {
     });
 
     it('returns 404 when transitioning a soft-deleted order (S6)', async () => {
-      await createWorkOrder(admin());
+      await createAssignedToMechanic();
       await admin().delete('/api/work-orders/wo-1');
 
       const response = await mechanic()
@@ -1370,7 +1435,7 @@ describe('Work Orders (e2e)', () => {
     });
 
     it('rejects any transition from cancelled with 409 (S5)', async () => {
-      await createWorkOrder(admin());
+      await createAssignedToMechanic();
       await mechanic()
         .patch('/api/work-orders/wo-1/status')
         .send({ status: 'cancelled' });
@@ -1384,7 +1449,7 @@ describe('Work Orders (e2e)', () => {
     });
 
     it('rejects any transition from done, including same-status, with 409 (S5)', async () => {
-      await createWorkOrder(admin());
+      await createAssignedToMechanic();
       await mechanic()
         .patch('/api/work-orders/wo-1/status')
         .send({ status: 'in_progress' });
@@ -1432,6 +1497,7 @@ describe('Work Orders (e2e)', () => {
           .send({
             clientId: CLIENT_ID,
             vehicleId: VEHICLE_ID,
+            employeeId: EMPLOYEE_ID,
             products: [{ productId: PRODUCT_ID, quantity }],
           });
 
@@ -1500,7 +1566,7 @@ describe('Work Orders (e2e)', () => {
       });
 
       it('completes a services-only order with zero stock movements (S4)', async () => {
-        await createWorkOrder(admin());
+        await createAssignedToMechanic();
         await mechanic()
           .patch('/api/work-orders/wo-1/status')
           .send({ status: 'in_progress' });
@@ -1771,7 +1837,7 @@ describe('Work Orders (e2e)', () => {
     });
 
     it('returns client and vehicle summaries across status transitions', async () => {
-      const created = await createWorkOrder(admin());
+      const created = await createAssignedToMechanic();
       expect(created.status).toBe(201);
 
       const inProgress = await mechanic()
