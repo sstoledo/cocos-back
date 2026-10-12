@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
@@ -27,4 +28,10 @@ export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
   roleId: string;
+
+  /** Employee primary key (cuid) to link this user to; optional. */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  employeeId?: string;
 }

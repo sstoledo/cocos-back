@@ -14,6 +14,7 @@ import { UserResponseDto } from './dto/user-response.dto';
 
 const USER_INCLUDE = {
   role: { select: { id: true, name: true } },
+  employee: { select: { id: true, name: true } },
 } as const;
 
 type UserWithRole = Prisma.UserGetPayload<{ include: typeof USER_INCLUDE }>;
@@ -81,14 +82,28 @@ export class UsersService {
     try {
       // Note: Password is handled by better-auth via Account model.
       // Admin creates user; user sets password via better-auth reset flow on first login.
-      const user = await this.prisma.user.create({
-        data: {
-          id: randomUUID(),
-          email: dto.email,
-          name: dto.name,
-          roleId: dto.roleId,
-        },
-        include: USER_INCLUDE,
+      const user = await this.prisma.$transaction(async (tx) => {
+        if (dto.employeeId !== undefined) {
+          await this.assertEmployeeLinkable(tx, dto.employeeId);
+        }
+        const created = await tx.user.create({
+          data: {
+            id: randomUUID(),
+            email: dto.email,
+            name: dto.name,
+            roleId: dto.roleId,
+          },
+        });
+        if (dto.employeeId !== undefined) {
+          await tx.employee.update({
+            where: { id: dto.employeeId },
+            data: { userId: created.id },
+          });
+        }
+        return tx.user.findUniqueOrThrow({
+          where: { id: created.id },
+          include: USER_INCLUDE,
+        });
       });
       return this.toResponse(user);
     } catch (error) {
@@ -100,15 +115,34 @@ export class UsersService {
     await this.findOne(id);
 
     try {
-      const user = await this.prisma.user.update({
-        where: { id },
-        data: {
-          name: dto.name,
-          email: dto.email,
-          roleId: dto.roleId,
-          isActive: dto.isActive,
-        },
-        include: USER_INCLUDE,
+      const user = await this.prisma.$transaction(async (tx) => {
+        if (dto.employeeId !== undefined && dto.employeeId !== null) {
+          await this.assertEmployeeLinkable(tx, dto.employeeId, id);
+        }
+        await tx.user.update({
+          where: { id },
+          data: {
+            name: dto.name,
+            email: dto.email,
+            roleId: dto.roleId,
+            isActive: dto.isActive,
+          },
+        });
+        if (dto.employeeId === null) {
+          await tx.employee.updateMany({
+            where: { userId: id },
+            data: { userId: null },
+          });
+        } else if (dto.employeeId !== undefined) {
+          await tx.employee.update({
+            where: { id: dto.employeeId },
+            data: { userId: id },
+          });
+        }
+        return tx.user.findUniqueOrThrow({
+          where: { id },
+          include: USER_INCLUDE,
+        });
       });
       return this.toResponse(user);
     } catch (error) {
@@ -147,8 +181,34 @@ export class UsersService {
   }
 
   private toResponse(user: UserWithRole): UserResponseDto {
-    const { emailVerified, image, ...rest } = user;
-    return new UserResponseDto(rest);
+    const { emailVerified, image, employee, ...rest } = user;
+    return new UserResponseDto({
+      ...rest,
+      employeeId: employee?.id ?? null,
+      employee: employee ?? null,
+    });
+  }
+
+  private async assertEmployeeLinkable(
+    tx: Prisma.TransactionClient,
+    employeeId: string,
+    userId?: string
+  ) {
+    const employee = await tx.employee.findUnique({
+      where: { id: employeeId },
+    });
+    if (!employee || !employee.isActive || employee.deletedAt !== null) {
+      throw new NotFoundException({
+        message: 'Employee not found',
+        errorCode: 'EMPLOYEE_NOT_FOUND',
+      });
+    }
+    if (employee.userId !== null && employee.userId !== userId) {
+      throw new ConflictException({
+        message: 'Employee already linked to another user',
+        errorCode: 'EMPLOYEE_ALREADY_LINKED',
+      });
+    }
   }
 
   async findAllRoles() {
