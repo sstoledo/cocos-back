@@ -97,10 +97,26 @@ const matchesSale = (sale: Row, where: Row) => {
   return true;
 };
 
+const matchesWorkOrder = (workOrder: Row, where: Row) => {
+  if (where.status !== undefined && workOrder.status !== where.status) {
+    return false;
+  }
+  if (where.isActive !== undefined && workOrder.isActive !== where.isActive) {
+    return false;
+  }
+  const updatedAt = where.updatedAt as Row | undefined;
+  const gte = updatedAt?.gte as Date | undefined;
+  const lt = updatedAt?.lt as Date | undefined;
+  if (gte && new Date(workOrder.updatedAt as Date) < gte) return false;
+  if (lt && new Date(workOrder.updatedAt as Date) >= lt) return false;
+  return true;
+};
+
 describe('CashClosings (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let sales: Array<Row>;
+  let workOrders: Array<Row>;
   let closings: Array<Row>;
   // Models the loser of the @@unique([periodStart]) race: a concurrent close
   // committed the same periodStart after this request read the last closing.
@@ -112,6 +128,7 @@ describe('CashClosings (e2e)', () => {
     jest.setSystemTime(NOW);
 
     sales = [];
+    workOrders = [];
     closings = [];
     simulateConcurrentClose = false;
 
@@ -160,6 +177,26 @@ describe('CashClosings (e2e)', () => {
         }),
         count: jest.fn(({ where }) => {
           return sales.filter((sale) => matchesSale(sale, where ?? {})).length;
+        }),
+      },
+      workOrder: {
+        count: jest.fn(({ where }) => {
+          return workOrders.filter((workOrder) =>
+            matchesWorkOrder(workOrder, where ?? {})
+          ).length;
+        }),
+        findFirst: jest.fn(() => {
+          const done = workOrders
+            .filter(
+              (workOrder) =>
+                workOrder.status === 'done' && workOrder.isActive !== false
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.updatedAt as Date).getTime() -
+                new Date(b.updatedAt as Date).getTime()
+            );
+          return done[0] ?? null;
         }),
       },
       cashClosing: {
@@ -265,6 +302,20 @@ describe('CashClosings (e2e)', () => {
     });
   };
 
+  const seedWorkOrder = (
+    status: string,
+    updatedAt: Date,
+    overrides: Row = {}
+  ) => {
+    workOrders.push({
+      id: `work-order-${workOrders.length + 1}`,
+      status,
+      isActive: true,
+      updatedAt,
+      ...overrides,
+    });
+  };
+
   const seedClosing = (
     periodStart: Date,
     periodEnd: Date,
@@ -315,12 +366,19 @@ describe('CashClosings (e2e)', () => {
       '$name → 200/201 for Admin and Reception',
       async ({ hit }) => {
         // A prior closing (ended before NOW) keeps each POST periodStart
-        // distinct under the pinned clock.
+        // distinct under the pinned clock; the sale gives the period
+        // activity, which a close now requires.
         seedClosing(MORNING, MIDDAY);
+        seedSale(PaymentMethod.cash, '10.00', MIDDAY);
 
         for (const as of [admin(), reception()]) {
           const response = await hit(as);
           expect([200, 201]).toContain(response.status);
+
+          // A POST consumes the open period; reopen activity (in a later
+          // window) so the next role can close too.
+          jest.setSystemTime(EVENING);
+          seedSale(PaymentMethod.cash, '10.00', AFTERNOON);
         }
       }
     );
@@ -430,8 +488,64 @@ describe('CashClosings (e2e)', () => {
       expect(second.body.salesCount).toBe(1);
     });
 
+    it('returns 400 CLOSING_NO_ACTIVITY when the open period has no activity', async () => {
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '0' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.errorCode).toBe('CLOSING_NO_ACTIVITY');
+      expect(response.body.message).toBe('No activity in the open period');
+      expect(closings).toHaveLength(0);
+    });
+
+    it('closes with no sales when a done work order exists in the period', async () => {
+      seedWorkOrder('done', MORNING);
+
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '0' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.salesCount).toBe(0);
+      expect(closings).toHaveLength(1);
+    });
+
+    it('does not count cancelled work orders as activity', async () => {
+      seedWorkOrder('cancelled', MORNING);
+
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '0' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.errorCode).toBe('CLOSING_NO_ACTIVITY');
+      expect(closings).toHaveLength(0);
+    });
+
+    it('a second close with activity succeeds after a valid first close', async () => {
+      seedSale(PaymentMethod.cash, '10.00', MORNING);
+
+      const first = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '10.00' });
+      expect(first.status).toBe(201);
+
+      jest.setSystemTime(EVENING);
+      seedWorkOrder('done', AFTERNOON);
+
+      const second = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '0' });
+
+      expect(second.status).toBe(201);
+      expect(second.body.periodStart).toBe(NOW.toISOString());
+      expect(closings).toHaveLength(2);
+    });
+
     it('returns 409 CLOSING_CONFLICT when a concurrent close wins the period', async () => {
-      seedClosing(MORNING, AFTERNOON);
+      seedClosing(MORNING, MIDDAY);
+      seedSale(PaymentMethod.cash, '10.00', MIDDAY);
       simulateConcurrentClose = true;
 
       const response = await admin()

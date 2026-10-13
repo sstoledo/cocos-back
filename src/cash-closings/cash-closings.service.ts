@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -11,7 +12,10 @@ import { ClosingPreviewResponseDto } from './dto/closing-preview.response.dto';
 import type { CreateCashClosingDto } from './dto/create-cash-closing.dto';
 import type { ListCashClosingsQueryDto } from './dto/list-cash-closings-query.dto';
 
-type Client = Pick<Prisma.TransactionClient, 'cashClosing' | 'sale'>;
+type Client = Pick<
+  Prisma.TransactionClient,
+  'cashClosing' | 'sale' | 'workOrder'
+>;
 
 interface PeriodTotals {
   expectedCash: Prisma.Decimal;
@@ -58,8 +62,24 @@ export class CashClosingsService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const now = new Date();
-        const periodStart = (await this.resolvePeriodStart(tx)) ?? now;
-        const totals = await this.aggregatePeriod(tx, periodStart, now);
+        const resolvedStart = await this.resolvePeriodStart(tx);
+        const totals = await this.aggregatePeriod(tx, resolvedStart, now);
+        const doneWorkOrdersCount = await this.countDoneWorkOrders(
+          tx,
+          resolvedStart,
+          now
+        );
+
+        if (totals.salesCount === 0 && doneWorkOrdersCount === 0) {
+          throw new BadRequestException({
+            message: 'No activity in the open period',
+            errorCode: 'CLOSING_NO_ACTIVITY',
+          });
+        }
+
+        // Defensive only: with activity present, resolvePeriodStart already
+        // anchors to the earliest sale or done work order.
+        const periodStart = resolvedStart ?? now;
 
         const declaredCash = new Prisma.Decimal(dto.declaredCash);
         const difference = declaredCash.minus(totals.expectedCash);
@@ -138,8 +158,9 @@ export class CashClosingsService {
   /**
    * Chained periods: the open period starts where the last closing ended.
    * Before the first closing ever, it starts at the earliest completed sale
-   * (null when the shop has no sales yet — the period is empty by
-   * construction, so the unbounded lower side changes nothing).
+   * or the earliest done work order, whichever came first (null when there
+   * is no activity at all — close() rejects that case, so the fallback
+   * below is defensive only).
    */
   private async resolvePeriodStart(client: Client): Promise<Date | null> {
     const lastClosing = await client.cashClosing.findFirst({
@@ -149,12 +170,23 @@ export class CashClosingsService {
       return lastClosing.periodEnd;
     }
 
-    const earliestSale = await client.sale.findFirst({
-      where: { status: 'completed', isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select: { createdAt: true },
-    });
-    return earliestSale?.createdAt ?? null;
+    const [earliestSale, earliestDoneWorkOrder] = await Promise.all([
+      client.sale.findFirst({
+        where: { status: 'completed', isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      client.workOrder.findFirst({
+        where: { status: 'done', isActive: true },
+        orderBy: { updatedAt: 'asc' },
+        select: { updatedAt: true },
+      }),
+    ]);
+
+    const anchors = [earliestSale?.createdAt, earliestDoneWorkOrder?.updatedAt]
+      .filter((date): date is Date => date !== undefined)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return anchors[0] ?? null;
   }
 
   /**
@@ -202,6 +234,25 @@ export class CashClosingsService {
       expectedTransfer: totals[PaymentMethod.transfer],
       salesCount,
     };
+  }
+
+  /**
+   * Work orders count as period activity only once done; `updatedAt`
+   * approximates completion time. Cancelled or soft-deleted orders never
+   * unblock a close.
+   */
+  private async countDoneWorkOrders(
+    client: Client,
+    periodStart: Date | null,
+    now: Date
+  ): Promise<number> {
+    const updatedAt: Prisma.DateTimeFilter = { lt: now };
+    if (periodStart) {
+      updatedAt.gte = periodStart;
+    }
+    return client.workOrder.count({
+      where: { status: 'done', isActive: true, updatedAt },
+    });
   }
 
   private toResponse(closing: {
