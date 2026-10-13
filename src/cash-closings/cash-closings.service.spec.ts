@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { CashClosingsService } from './cash-closings.service';
@@ -63,6 +67,9 @@ describe('CashClosingsService', () => {
       sale: {
         findFirst: jest.fn(),
         groupBy: jest.fn(),
+        count: jest.fn(),
+      },
+      workOrder: {
         count: jest.fn(),
       },
       $transaction: jest.fn(),
@@ -243,6 +250,7 @@ describe('CashClosingsService', () => {
         },
       ]);
       (prisma.sale.count as jest.Mock).mockResolvedValue(5);
+      (prisma.workOrder.count as jest.Mock).mockResolvedValue(0);
     });
 
     it('persists the snapshot inside a transaction with the period bounds', async () => {
@@ -332,20 +340,66 @@ describe('CashClosingsService', () => {
       expect(createData.notes).toBeNull();
     });
 
-    it('closes an empty first period starting at now', async () => {
+    it('throws 400 CLOSING_NO_ACTIVITY when the open period has no activity', async () => {
       (prisma.cashClosing.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.sale.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.sale.groupBy as jest.Mock).mockResolvedValue([]);
       (prisma.sale.count as jest.Mock).mockResolvedValue(0);
+      (prisma.workOrder.count as jest.Mock).mockResolvedValue(0);
+
+      const error = await service
+        .close('user-1', { declaredCash: '15' })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        message: 'No activity in the open period',
+        errorCode: 'CLOSING_NO_ACTIVITY',
+      });
+      expect(prisma.cashClosing.create).not.toHaveBeenCalled();
+    });
+
+    it('closes with no sales when done work orders exist in the period', async () => {
+      (prisma.cashClosing.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.sale.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.sale.groupBy as jest.Mock).mockResolvedValue([]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(0);
+      (prisma.workOrder.count as jest.Mock).mockResolvedValue(2);
 
       const result = await service.close('user-1', { declaredCash: '15' });
 
-      const createData = (prisma.cashClosing.create as jest.Mock).mock
-        .calls[0][0].data;
-      expect(createData.periodStart).toEqual(NOW);
-      expect(result.expectedCash).toBe('0.00');
-      expect(result.difference).toBe('15.00');
       expect(result.salesCount).toBe(0);
+      expect(result.expectedCash).toBe('0.00');
+      expect(prisma.cashClosing.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts only done active work orders completed inside the period', async () => {
+      await service.close('user-1', dto);
+
+      expect(prisma.workOrder.count).toHaveBeenCalledWith({
+        where: {
+          status: 'done',
+          isActive: true,
+          updatedAt: { gte: LAST_PERIOD_END, lt: NOW },
+        },
+      });
+    });
+
+    it('rejects when only cancelled work orders exist (they are not activity)', async () => {
+      (prisma.sale.groupBy as jest.Mock).mockResolvedValue([]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(0);
+      // The done-status filter excludes cancelled orders, so the count is 0.
+      (prisma.workOrder.count as jest.Mock).mockResolvedValue(0);
+
+      const error = await service
+        .close('user-1', dto)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        errorCode: 'CLOSING_NO_ACTIVITY',
+      });
+      expect(prisma.cashClosing.create).not.toHaveBeenCalled();
     });
 
     it('starts the first closing at the earliest completed sale', async () => {
