@@ -16,7 +16,6 @@ const SALE_INCLUDE = {
   branch: { select: { id: true, name: true } },
   employee: { select: { id: true, name: true } },
   products: { include: { product: true } },
-  services: { include: { service: true } },
 } as const;
 
 @Injectable()
@@ -25,11 +24,10 @@ export class SalesService {
 
   async create(dto: CreateSaleDto) {
     const productLines = dto.productLines ?? [];
-    const serviceLines = dto.serviceLines ?? [];
 
-    if (productLines.length === 0 && serviceLines.length === 0) {
+    if (productLines.length === 0) {
       throw new BadRequestException({
-        message: 'Sale must include at least one product or service line',
+        message: 'Sale must include at least one product line',
         errorCode: 'SALE_EMPTY_LINES',
       });
     }
@@ -38,19 +36,14 @@ export class SalesService {
       productLines.map((l) => l.productId),
       'productId'
     );
-    this.ensureNoDuplicateLines(
-      serviceLines.map((l) => l.serviceId),
-      'serviceId'
-    );
 
     await this.ensureClientExists(dto.clientId);
     await this.ensureBranchExists(dto.branchId);
     await this.ensureEmployeeExists(dto.employeeId);
 
     const productLineItems = await this.resolveProductLineItems(productLines);
-    const serviceLineItems = await this.resolveServiceLineItems(serviceLines);
 
-    const totalAmount = [...productLineItems, ...serviceLineItems].reduce(
+    const totalAmount = productLineItems.reduce(
       (total, line) => total.add(line.subtotal),
       new Prisma.Decimal(0)
     );
@@ -99,14 +92,6 @@ export class SalesService {
           products: {
             create: productLineItems.map((item) => ({
               productId: item.productId,
-              quantity: item.quantity,
-              unitPriceSnapshot: item.unitPriceSnapshot,
-              subtotal: item.subtotal,
-            })),
-          },
-          services: {
-            create: serviceLineItems.map((item) => ({
-              serviceId: item.serviceId,
               quantity: item.quantity,
               unitPriceSnapshot: item.unitPriceSnapshot,
               subtotal: item.subtotal,
@@ -397,42 +382,6 @@ export class SalesService {
     return lineItems;
   }
 
-  private async resolveServiceLineItems(
-    lines: NonNullable<CreateSaleDto['serviceLines']>
-  ): Promise<
-    Array<{
-      serviceId: string;
-      quantity: number;
-      unitPriceSnapshot: Prisma.Decimal;
-      subtotal: Prisma.Decimal;
-    }>
-  > {
-    const lineItems = [];
-
-    for (const line of lines) {
-      const service = await this.prisma.service.findUnique({
-        where: { id: line.serviceId, isActive: true },
-      });
-
-      if (!service) {
-        throw new NotFoundException({
-          message: 'Service not found or inactive',
-          errorCode: 'SERVICE_NOT_FOUND',
-        });
-      }
-
-      const unitPriceSnapshot = new Prisma.Decimal(service.price);
-      lineItems.push({
-        serviceId: line.serviceId,
-        quantity: line.quantity,
-        unitPriceSnapshot,
-        subtotal: unitPriceSnapshot.mul(line.quantity),
-      });
-    }
-
-    return lineItems;
-  }
-
   private async generateSaleNumber(
     tx: Prisma.TransactionClient
   ): Promise<string> {
@@ -479,22 +428,6 @@ export class SalesService {
         price: Prisma.Decimal;
       };
     }>;
-    services?: Array<{
-      id: string;
-      serviceId: string;
-      quantity: number;
-      unitPriceSnapshot: Prisma.Decimal;
-      subtotal: Prisma.Decimal;
-      createdAt: Date;
-      updatedAt: Date;
-      service: {
-        id: string;
-        code: string;
-        name: string;
-        description: string | null;
-        price: Prisma.Decimal;
-      };
-    }>;
   }): SaleResponseDto {
     const products = sale.products?.map((p) => ({
       id: p.id,
@@ -513,23 +446,6 @@ export class SalesService {
       },
     }));
 
-    const services = sale.services?.map((s) => ({
-      id: s.id,
-      serviceId: s.serviceId,
-      quantity: s.quantity,
-      unitPriceSnapshot: Number(s.unitPriceSnapshot).toFixed(2),
-      subtotal: Number(s.subtotal).toFixed(2),
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-      service: {
-        id: s.service.id,
-        code: s.service.code,
-        name: s.service.name,
-        description: s.service.description,
-        price: Number(s.service.price).toFixed(2),
-      },
-    }));
-
     return plainToInstance(
       SaleResponseDto,
       {
@@ -545,7 +461,6 @@ export class SalesService {
           ? { id: sale.employee.id, name: sale.employee.name }
           : null,
         products: products ?? [],
-        services: services ?? [],
       },
       { excludeExtraneousValues: true }
     );
