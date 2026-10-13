@@ -71,6 +71,7 @@ describe('CashClosingsService', () => {
       },
       workOrder: {
         count: jest.fn(),
+        findFirst: jest.fn(),
       },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
@@ -360,17 +361,29 @@ describe('CashClosingsService', () => {
     });
 
     it('closes with no sales when done work orders exist in the period', async () => {
+      const doneWorkOrderAt = new Date('2026-01-03T09:00:00.000Z');
       (prisma.cashClosing.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.sale.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.sale.groupBy as jest.Mock).mockResolvedValue([]);
       (prisma.sale.count as jest.Mock).mockResolvedValue(0);
       (prisma.workOrder.count as jest.Mock).mockResolvedValue(2);
+      (prisma.workOrder.findFirst as jest.Mock).mockResolvedValue({
+        updatedAt: doneWorkOrderAt,
+      });
 
       const result = await service.close('user-1', { declaredCash: '15' });
 
       expect(result.salesCount).toBe(0);
       expect(result.expectedCash).toBe('0.00');
       expect(prisma.cashClosing.create).toHaveBeenCalledTimes(1);
+      // Anchors to the earliest done work order, never to `now`: anchoring
+      // to now would make periodStart == periodEnd and permanently brick
+      // the next closing via the @@unique([periodStart]) collision.
+      expect(prisma.cashClosing.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ periodStart: doneWorkOrderAt }),
+        })
+      );
     });
 
     it('counts only done active work orders completed inside the period', async () => {

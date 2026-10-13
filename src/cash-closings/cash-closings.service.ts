@@ -77,8 +77,8 @@ export class CashClosingsService {
           });
         }
 
-        // Reachable only with activity: a done-work-order-only first close
-        // has no sale to anchor to, so it starts at now.
+        // Defensive only: with activity present, resolvePeriodStart already
+        // anchors to the earliest sale or done work order.
         const periodStart = resolvedStart ?? now;
 
         const declaredCash = new Prisma.Decimal(dto.declaredCash);
@@ -158,8 +158,9 @@ export class CashClosingsService {
   /**
    * Chained periods: the open period starts where the last closing ended.
    * Before the first closing ever, it starts at the earliest completed sale
-   * (null when the shop has no sales yet — the period is empty by
-   * construction, so the unbounded lower side changes nothing).
+   * or the earliest done work order, whichever came first (null when there
+   * is no activity at all — close() rejects that case, so the fallback
+   * below is defensive only).
    */
   private async resolvePeriodStart(client: Client): Promise<Date | null> {
     const lastClosing = await client.cashClosing.findFirst({
@@ -169,12 +170,23 @@ export class CashClosingsService {
       return lastClosing.periodEnd;
     }
 
-    const earliestSale = await client.sale.findFirst({
-      where: { status: 'completed', isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select: { createdAt: true },
-    });
-    return earliestSale?.createdAt ?? null;
+    const [earliestSale, earliestDoneWorkOrder] = await Promise.all([
+      client.sale.findFirst({
+        where: { status: 'completed', isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      client.workOrder.findFirst({
+        where: { status: 'done', isActive: true },
+        orderBy: { updatedAt: 'asc' },
+        select: { updatedAt: true },
+      }),
+    ]);
+
+    const anchors = [earliestSale?.createdAt, earliestDoneWorkOrder?.updatedAt]
+      .filter((date): date is Date => date !== undefined)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return anchors[0] ?? null;
   }
 
   /**

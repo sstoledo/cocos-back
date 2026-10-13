@@ -185,6 +185,19 @@ describe('CashClosings (e2e)', () => {
             matchesWorkOrder(workOrder, where ?? {})
           ).length;
         }),
+        findFirst: jest.fn(() => {
+          const done = workOrders
+            .filter(
+              (workOrder) =>
+                workOrder.status === 'done' && workOrder.isActive !== false
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.updatedAt as Date).getTime() -
+                new Date(b.updatedAt as Date).getTime()
+            );
+          return done[0] ?? null;
+        }),
       },
       cashClosing: {
         findFirst: jest.fn(() => {
