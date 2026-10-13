@@ -24,13 +24,12 @@ describe('SalesService', () => {
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
-  const serviceRecord = {
-    id: 'svc-1',
-    code: 'OIL-CHANGE',
-    name: 'Oil change',
-    description: 'Standard oil change',
-    price: new Prisma.Decimal(35.5),
-    estimatedDuration: 30,
+  const productRecord2 = {
+    id: 'prod-2',
+    code: 'PAD-001',
+    name: 'Brake pads',
+    description: null,
+    price: new Prisma.Decimal(25.0),
     isActive: true,
     deletedAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -52,7 +51,6 @@ describe('SalesService', () => {
     jest.clearAllMocks();
     prisma = {
       product: { findUnique: jest.fn() },
-      service: { findUnique: jest.fn() },
       client: { findUnique: jest.fn() },
       branch: { findUnique: jest.fn() },
       employee: { findUnique: jest.fn() },
@@ -154,39 +152,21 @@ describe('SalesService', () => {
       ).toBe('10.00');
     });
 
-    it('creates a services-only sale with zero stock movements (S2)', async () => {
-      const dto: CreateSaleDto = {
-        paymentMethod: PaymentMethod.card,
-        serviceLines: [{ serviceId: 'svc-1', quantity: 2 }],
-      };
-
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
-
-      const result = await service.create(dto);
-
-      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
-      expect(prisma.lotItem.aggregate).not.toHaveBeenCalled();
-      expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
-      expect(Number(result.totalAmount).toFixed(2)).toBe('71.00');
-    });
-
-    it('creates a mixed walk-in sale without optional references (S3)', async () => {
+    it('creates a multi-product walk-in sale without optional references (S3)', async () => {
       const dto: CreateSaleDto = {
         paymentMethod: PaymentMethod.transfer,
-        productLines: [{ productId: 'prod-1', quantity: 1 }],
-        serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+        productLines: [
+          { productId: 'prod-1', quantity: 1 },
+          { productId: 'prod-2', quantity: 2 },
+        ],
       };
 
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        ...productRecord,
-        price: new Prisma.Decimal(10),
-      });
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue({
-        ...serviceRecord,
-        price: new Prisma.Decimal(20),
-      });
+      (prisma.product.findUnique as jest.Mock).mockImplementation(
+        ({ where }: { where: { id: string } }) =>
+          where.id === 'prod-1' ? productRecord : productRecord2
+      );
       (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
-        _sum: { remainingQuantity: 3 },
+        _sum: { remainingQuantity: 5 },
       });
       (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([lotItemA]);
       (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
@@ -196,8 +176,10 @@ describe('SalesService', () => {
       expect(prisma.client.findUnique).not.toHaveBeenCalled();
       expect(prisma.branch.findUnique).not.toHaveBeenCalled();
       expect(prisma.employee.findUnique).not.toHaveBeenCalled();
-      expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
-      expect(Number(result.totalAmount).toFixed(2)).toBe('30.00');
+      // 10.00 * 1 + 25.00 * 2 = 60.00
+      expect(Number(result.totalAmount).toFixed(2)).toBe('60.00');
+      const createArgs = (prisma.sale.create as jest.Mock).mock.calls[0][0];
+      expect(createArgs.data.products.create).toHaveLength(2);
     });
 
     it('ignores client-sent unit prices and snapshots catalog prices (SAL-F4)', async () => {
@@ -222,21 +204,21 @@ describe('SalesService', () => {
       expect(Number(createArgs.data.totalAmount).toFixed(2)).toBe('20.00');
     });
 
-    it('computes Decimal totals exactly across mixed lines', async () => {
+    it('computes Decimal totals exactly across multiple products', async () => {
       const dto: CreateSaleDto = {
         paymentMethod: PaymentMethod.cash,
-        productLines: [{ productId: 'prod-1', quantity: 3 }],
-        serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+        productLines: [
+          { productId: 'prod-1', quantity: 3 },
+          { productId: 'prod-2', quantity: 1 },
+        ],
       };
 
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue({
-        ...productRecord,
-        price: new Prisma.Decimal('10.10'),
-      });
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue({
-        ...serviceRecord,
-        price: new Prisma.Decimal('20.20'),
-      });
+      (prisma.product.findUnique as jest.Mock).mockImplementation(
+        ({ where }: { where: { id: string } }) =>
+          where.id === 'prod-1'
+            ? { ...productRecord, price: new Prisma.Decimal('10.10') }
+            : { ...productRecord2, price: new Prisma.Decimal('20.20') }
+      );
       (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
         _sum: { remainingQuantity: 10 },
       });
@@ -246,16 +228,22 @@ describe('SalesService', () => {
       await service.create(dto);
 
       const createArgs = (prisma.sale.create as jest.Mock).mock.calls[0][0];
+      // 10.10 * 3 + 20.20 * 1 = 50.50
       expect(createArgs.data.totalAmount.toFixed(2)).toBe('50.50');
     });
 
     it('generates the sale number inside the transaction via sequence upsert (S8)', async () => {
       const dto: CreateSaleDto = {
         paymentMethod: PaymentMethod.cash,
-        serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+        productLines: [{ productId: 'prod-1', quantity: 1 }],
       };
 
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
+      (prisma.product.findUnique as jest.Mock).mockResolvedValue(productRecord);
+      (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
+        _sum: { remainingQuantity: 3 },
+      });
+      (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([lotItemA]);
+      (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       await service.create(dto);
 
@@ -274,7 +262,7 @@ describe('SalesService', () => {
       expect(sequenceOrder).toBeLessThan(saleOrder);
     });
 
-    it('throws 400 SALE_EMPTY_LINES when no lines are provided (S5)', async () => {
+    it('throws 400 SALE_EMPTY_LINES when no product lines are provided (S5)', async () => {
       await expect(
         service.create({ paymentMethod: PaymentMethod.cash })
       ).rejects.toThrow(BadRequestException);
@@ -282,7 +270,6 @@ describe('SalesService', () => {
         service.create({
           paymentMethod: PaymentMethod.cash,
           productLines: [],
-          serviceLines: [],
         })
       ).rejects.toMatchObject({
         response: { errorCode: 'SALE_EMPTY_LINES' },
@@ -320,39 +307,26 @@ describe('SalesService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('throws 404 SERVICE_NOT_FOUND for unknown or inactive service (S6)', async () => {
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        service.create({
-          paymentMethod: PaymentMethod.cash,
-          serviceLines: [{ serviceId: 'svc-x', quantity: 1 }],
-        })
-      ).rejects.toMatchObject({ response: { errorCode: 'SERVICE_NOT_FOUND' } });
-    });
-
     it('throws 404 CLIENT_NOT_FOUND for unknown or inactive client (S6)', async () => {
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
       (prisma.client.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.create({
           paymentMethod: PaymentMethod.cash,
           clientId: 'client-x',
-          serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+          productLines: [{ productId: 'prod-1', quantity: 1 }],
         })
       ).rejects.toMatchObject({ response: { errorCode: 'CLIENT_NOT_FOUND' } });
     });
 
     it('throws 404 BRANCH_NOT_FOUND / EMPLOYEE_NOT_FOUND (S6)', async () => {
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
       (prisma.branch.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.create({
           paymentMethod: PaymentMethod.cash,
           branchId: 'branch-x',
-          serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+          productLines: [{ productId: 'prod-1', quantity: 1 }],
         })
       ).rejects.toMatchObject({ response: { errorCode: 'BRANCH_NOT_FOUND' } });
 
@@ -366,7 +340,7 @@ describe('SalesService', () => {
           paymentMethod: PaymentMethod.cash,
           branchId: 'branch-1',
           employeeId: 'emp-x',
-          serviceLines: [{ serviceId: 'svc-1', quantity: 1 }],
+          productLines: [{ productId: 'prod-1', quantity: 1 }],
         })
       ).rejects.toMatchObject({
         response: { errorCode: 'EMPLOYEE_NOT_FOUND' },
@@ -444,7 +418,6 @@ describe('SalesService', () => {
       branch: null,
       employee: null,
       products: [],
-      services: [],
     };
 
     const sliceA = {
@@ -604,7 +577,7 @@ describe('SalesService', () => {
       expect(prisma.stockMovement.create).not.toHaveBeenCalled();
     });
 
-    it('cancels a services-only sale with zero movements and keeps the DTO shape', async () => {
+    it('cancels a sale with zero stock movements and keeps the DTO shape', async () => {
       mockFindThenReRead(
         { ...baseSale, status: 'completed', stockMovements: [] },
         { ...baseSale, status: 'cancelled' }
@@ -725,7 +698,6 @@ describe('SalesService', () => {
         branch: null,
         employee: null,
         products: [],
-        services: [],
       });
 
       const result = await service.findOne('sale-1');

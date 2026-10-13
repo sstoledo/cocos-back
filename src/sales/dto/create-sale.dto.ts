@@ -23,17 +23,6 @@ export class SaleProductLineDto {
   quantity: number;
 }
 
-export class SaleServiceLineDto {
-  @IsString()
-  @IsNotEmpty()
-  serviceId: string;
-
-  @IsInt()
-  @Min(1)
-  @Type(() => Number)
-  quantity: number;
-}
-
 export class CreateSaleDto {
   @IsOptional()
   @IsString()
@@ -59,11 +48,4 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => SaleProductLineDto)
   productLines?: SaleProductLineDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ValidateNested({ each: true })
-  @Type(() => SaleServiceLineDto)
-  serviceLines?: SaleServiceLineDto[];
 }

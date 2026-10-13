@@ -40,9 +40,6 @@ const BRANCH_INACTIVE_ID = 'clbranchinactive000000001';
 const PRODUCT_ID = 'clproduct0000000000000001';
 const PRODUCT_2_ID = 'clproduct0000000000000002';
 const PRODUCT_INACTIVE_ID = 'clproductinactive00000001';
-const SERVICE_ID = 'clservice0000000000000001';
-const SERVICE_2_ID = 'clservice0000000000000002';
-const SERVICE_INACTIVE_ID = 'clserviceinactive00000001';
 const MISSING_ID = 'clmissing0000000000000001';
 
 describe('Sales (e2e)', () => {
@@ -53,7 +50,6 @@ describe('Sales (e2e)', () => {
   let stockMovements: Array<Record<string, unknown>>;
   let sales: Array<Record<string, unknown>>;
   let saleProducts: Array<Record<string, unknown>>;
-  let saleServices: Array<Record<string, unknown>>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -130,44 +126,11 @@ describe('Sales (e2e)', () => {
         deletedAt: new Date(),
       },
     ];
-    const services: Array<Record<string, unknown>> = [
-      {
-        id: SERVICE_ID,
-        code: 'OIL-001',
-        name: 'Oil change',
-        description: 'Standard oil change',
-        price: new Prisma.Decimal(35.5),
-        estimatedDuration: 30,
-        isActive: true,
-        deletedAt: null,
-      },
-      {
-        id: SERVICE_2_ID,
-        code: 'BRK-001',
-        name: 'Brake check',
-        description: null,
-        price: new Prisma.Decimal(20),
-        estimatedDuration: null,
-        isActive: true,
-        deletedAt: null,
-      },
-      {
-        id: SERVICE_INACTIVE_ID,
-        code: 'OLD-001',
-        name: 'Retired service',
-        description: null,
-        price: new Prisma.Decimal(10),
-        estimatedDuration: null,
-        isActive: false,
-        deletedAt: new Date(),
-      },
-    ];
     lots = [];
     lotItems = [];
     stockMovements = [];
     sales = [];
     saleProducts = [];
-    saleServices = [];
     const sequences: Array<Record<string, unknown>> = [];
 
     const productLinesFor = (saleId: string) =>
@@ -176,14 +139,6 @@ describe('Sales (e2e)', () => {
         .map((line) => ({
           ...line,
           product: products.find((product) => product.id === line.productId),
-        }));
-
-    const serviceLinesFor = (saleId: string) =>
-      saleServices
-        .filter((line) => line.saleId === saleId)
-        .map((line) => ({
-          ...line,
-          service: services.find((service) => service.id === line.serviceId),
         }));
 
     const relationsFor = (sale: Record<string, unknown>) => ({
@@ -279,17 +234,6 @@ describe('Sales (e2e)', () => {
               product.id === where.id &&
               (where.isActive === undefined ||
                 product.isActive === where.isActive)
-          );
-          return found ?? null;
-        }),
-      },
-      service: {
-        findUnique: jest.fn(({ where }) => {
-          const found = services.find(
-            (service) =>
-              service.id === where.id &&
-              (where.isActive === undefined ||
-                service.isActive === where.isActive)
           );
           return found ?? null;
         }),
@@ -417,22 +361,9 @@ describe('Sales (e2e)', () => {
               updatedAt: new Date(),
             });
           }
-          for (const line of data.services?.create ?? []) {
-            saleServices.push({
-              id: `ss-${saleServices.length + 1}`,
-              saleId: id,
-              serviceId: line.serviceId,
-              quantity: line.quantity,
-              unitPriceSnapshot: line.unitPriceSnapshot,
-              subtotal: line.subtotal,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            });
-          }
           return {
             ...sale,
             products: productLinesFor(id),
-            services: serviceLinesFor(id),
             ...relationsFor(sale),
           };
         }),
@@ -448,7 +379,6 @@ describe('Sales (e2e)', () => {
           return sorted.slice(skip, skip + take).map((sale) => ({
             ...sale,
             products: productLinesFor(sale.id as string),
-            services: serviceLinesFor(sale.id as string),
             ...relationsFor(sale),
           }));
         }),
@@ -470,7 +400,6 @@ describe('Sales (e2e)', () => {
           return {
             ...found,
             products: productLinesFor(found.id as string),
-            services: serviceLinesFor(found.id as string),
             stockMovements: stockMovements.filter(
               (movement) => movement.saleId === found.id
             ),
@@ -615,57 +544,54 @@ describe('Sales (e2e)', () => {
       );
     });
 
-    it('creates a services-only sale with zero stock movements (S2)', async () => {
-      const response = await reception()
-        .post('/api/sales')
-        .send({
-          paymentMethod: 'card',
-          serviceLines: [{ serviceId: SERVICE_ID, quantity: 2 }],
-        });
-
-      expect(response.status).toBe(201);
-      expect(response.body.totalAmount).toBe('71.00');
-      expect(response.body.services).toHaveLength(1);
-      expect(response.body.services[0]).toMatchObject({
-        serviceId: SERVICE_ID,
-        quantity: 2,
-        unitPriceSnapshot: '35.50',
-        subtotal: '71.00',
-      });
-      expect(stockMovements).toHaveLength(0);
-    });
-
-    it('creates a mixed walk-in sale without optional references (S3)', async () => {
-      lots.push({
-        id: 'lot-1',
-        receivedAt: new Date('2026-01-01T00:00:00.000Z'),
-      });
-      lotItems.push({
-        id: 'lot-a',
-        lotId: 'lot-1',
-        productId: PRODUCT_ID,
-        remainingQuantity: 3,
-      });
+    it('creates a multi-product walk-in sale without optional references (S3)', async () => {
+      lots.push(
+        { id: 'lot-1', receivedAt: new Date('2026-01-01T00:00:00.000Z') },
+        { id: 'lot-2', receivedAt: new Date('2026-01-02T00:00:00.000Z') }
+      );
+      lotItems.push(
+        {
+          id: 'lot-a',
+          lotId: 'lot-1',
+          productId: PRODUCT_ID,
+          remainingQuantity: 3,
+        },
+        {
+          id: 'lot-b',
+          lotId: 'lot-2',
+          productId: PRODUCT_2_ID,
+          remainingQuantity: 5,
+        }
+      );
 
       const response = await reception()
         .post('/api/sales')
         .send({
           paymentMethod: 'cash',
-          productLines: [{ productId: PRODUCT_ID, quantity: 1 }],
-          serviceLines: [{ serviceId: SERVICE_2_ID, quantity: 1 }],
+          productLines: [
+            { productId: PRODUCT_ID, quantity: 1 },
+            { productId: PRODUCT_2_ID, quantity: 2 },
+          ],
         });
 
       expect(response.status).toBe(201);
-      expect(response.body.totalAmount).toBe('30.00');
+      // 10.00 * 1 + 25.00 * 2 = 60.00
+      expect(response.body.totalAmount).toBe('60.00');
+      expect(response.body.products).toHaveLength(2);
       expect(response.body.clientId).toBeNull();
       expect(response.body.client).toBeNull();
       expect(response.body.branch).toBeNull();
       expect(response.body.employee).toBeNull();
-      expect(stockMovements).toHaveLength(1);
+      expect(stockMovements).toHaveLength(2);
       expect(stockMovements[0]).toMatchObject({
         productId: PRODUCT_ID,
         lotItemId: 'lot-a',
         quantity: -1,
+      });
+      expect(stockMovements[1]).toMatchObject({
+        productId: PRODUCT_2_ID,
+        lotItemId: 'lot-b',
+        quantity: -2,
       });
     });
 
@@ -705,7 +631,6 @@ describe('Sales (e2e)', () => {
       expect(lotItems[1].remainingQuantity).toBe(1);
       expect(sales).toHaveLength(0);
       expect(saleProducts).toHaveLength(0);
-      expect(saleServices).toHaveLength(0);
       expect(stockMovements).toHaveLength(0);
     });
 
@@ -718,7 +643,7 @@ describe('Sales (e2e)', () => {
 
       const emptyArrays = await reception()
         .post('/api/sales')
-        .send({ paymentMethod: 'cash', productLines: [], serviceLines: [] });
+        .send({ paymentMethod: 'cash', productLines: [] });
       expect(emptyArrays.status).toBe(400);
       // Empty arrays are rejected by the DTO (ArrayMinSize) before the service.
 
@@ -740,7 +665,7 @@ describe('Sales (e2e)', () => {
         .send({
           paymentMethod: 'cash',
           clientId: MISSING_ID,
-          serviceLines: [{ serviceId: SERVICE_ID, quantity: 1 }],
+          productLines: [{ productId: PRODUCT_ID, quantity: 1 }],
         });
       expect(missingClient.status).toBe(404);
       expect(missingClient.body.errorCode).toBe('CLIENT_NOT_FOUND');
@@ -753,7 +678,7 @@ describe('Sales (e2e)', () => {
         .post('/api/sales')
         .send({
           paymentMethod: 'cash',
-          serviceLines: [{ serviceId: SERVICE_ID, quantity: 1 }],
+          productLines: [{ productId: PRODUCT_ID, quantity: 1 }],
         });
       expect(unauthenticated.status).toBe(401);
 
@@ -761,7 +686,7 @@ describe('Sales (e2e)', () => {
         .post('/api/sales')
         .send({
           paymentMethod: 'cash',
-          serviceLines: [{ serviceId: SERVICE_ID, quantity: 1 }],
+          productLines: [{ productId: PRODUCT_ID, quantity: 1 }],
         });
       expect(forbidden.status).toBe(403);
 
@@ -1122,7 +1047,6 @@ describe('Sales (e2e)', () => {
           branchId: BRANCH_ID,
           employeeId: EMPLOYEE_ID,
           productLines: [{ productId: PRODUCT_ID, quantity: 2 }],
-          serviceLines: [{ serviceId: SERVICE_ID, quantity: 1 }],
         });
       expect(created.status).toBe(201);
       const saleId = created.body.id;
@@ -1132,7 +1056,7 @@ describe('Sales (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
         id: saleId,
-        totalAmount: '55.50',
+        totalAmount: '20.00',
         clientId: CLIENT_ID,
         client: { id: CLIENT_ID, name: 'María García' },
         branch: { id: BRANCH_ID, name: 'Sucursal Central' },
@@ -1146,14 +1070,7 @@ describe('Sales (e2e)', () => {
         subtotal: '20.00',
       });
       expect(response.body.products[0].product.name).toBe('Oil filter');
-      expect(response.body.services).toHaveLength(1);
-      expect(response.body.services[0]).toMatchObject({
-        serviceId: SERVICE_ID,
-        quantity: 1,
-        unitPriceSnapshot: '35.50',
-        subtotal: '35.50',
-      });
-      expect(response.body.services[0].service.name).toBe('Oil change');
+      expect(response.body.services).toBeUndefined();
     });
 
     it('returns 404 SALE_NOT_FOUND for a missing sale', async () => {

@@ -56,61 +56,6 @@ export class SaleProductResponseDto {
 }
 
 @Exclude()
-export class SaleServiceItemResponseDto {
-  @Expose()
-  id: string;
-
-  @Expose()
-  code: string;
-
-  @Expose()
-  name: string;
-
-  @Expose()
-  description?: string | null;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  price: string;
-}
-
-@Exclude()
-export class SaleServiceResponseDto {
-  @Expose()
-  id: string;
-
-  @Expose()
-  serviceId: string;
-
-  @Expose()
-  @Type(() => Number)
-  quantity: number;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  unitPriceSnapshot: string;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  subtotal: string;
-
-  @Expose()
-  @Type(() => SaleServiceItemResponseDto)
-  service: SaleServiceItemResponseDto;
-
-  @Expose()
-  @Type(() => Date)
-  createdAt: Date;
-
-  @Expose()
-  @Type(() => Date)
-  updatedAt: Date;
-}
-
-@Exclude()
 export class EmployeeSummaryDto {
   @Expose()
   id: string;
@@ -183,10 +128,6 @@ export class SaleResponseDto {
   @Expose()
   @Type(() => SaleProductResponseDto)
   products: SaleProductResponseDto[];
-
-  @Expose()
-  @Type(() => SaleServiceResponseDto)
-  services: SaleServiceResponseDto[];
 
   @Expose()
   @Type(() => Date)

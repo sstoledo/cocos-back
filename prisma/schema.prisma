@@ -215,7 +215,6 @@ model Service {
   isActive          Boolean            @default(true) @map("is_active")
   deletedAt         DateTime?          @map("deleted_at")
   workOrderServices WorkOrderService[]
-  saleServices      SaleService[]
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
@@ -443,7 +442,6 @@ model Sale {
   isActive       Boolean         @default(true) @map("is_active")
   deletedAt      DateTime?       @map("deleted_at")
   products       SaleProduct[]
-  services       SaleService[]
   stockMovements StockMovement[]
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
@@ -471,22 +469,6 @@ model SaleProduct {
 
   @@unique([saleId, productId])
   @@map("sale_products")
-}
-
-model SaleService {
-  id                String   @id @default(cuid())
-  saleId            String   @map("sale_id")
-  sale              Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  serviceId         String   @map("service_id")
-  service           Service  @relation(fields: [serviceId], references: [id])
-  quantity          Int      @default(1)
-  unitPriceSnapshot Decimal  @map("unit_price_snapshot") @db.Decimal(10, 2)
-  subtotal          Decimal  @db.Decimal(10, 2)
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  @@unique([saleId, serviceId])
-  @@map("sale_services")
 }
 
 model SaleNumberSequence {

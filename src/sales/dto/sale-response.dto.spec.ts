@@ -17,7 +17,6 @@ const prismaSale = {
   branch: { id: 'branch-1', name: 'Main Branch' },
   employee: { id: 'emp-1', name: 'John Doe' },
   products: [],
-  services: [],
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-02T00:00:00.000Z'),
   deletedAt: null,
