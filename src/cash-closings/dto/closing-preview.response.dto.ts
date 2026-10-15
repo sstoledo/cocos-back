@@ -17,4 +17,16 @@ export class ClosingPreviewResponseDto {
 
   @Expose()
   salesCount: number;
+
+  @Expose()
+  workOrderPaymentsCash: string;
+
+  @Expose()
+  workOrderPaymentsCard: string;
+
+  @Expose()
+  workOrderPaymentsTransfer: string;
+
+  @Expose()
+  workOrderPaymentsCount: number;
 }

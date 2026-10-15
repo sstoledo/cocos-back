@@ -13,6 +13,7 @@ import {
 import { RoleName } from '@prisma/client';
 import type { RequestWithUser } from '../auth';
 import { Roles, RolesGuard } from '../auth';
+import { CreateWorkOrderPaymentDto } from './dto/create-work-order-payment.dto';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
 import { TransitionWorkOrderStatusDto } from './dto/transition-work-order-status.dto';
@@ -77,6 +78,25 @@ export class WorkOrdersController {
       dto.status,
       request.user
     );
+  }
+
+  @Get(':id/payments')
+  @Roles(
+    RoleName.Admin,
+    RoleName.Reception,
+    RoleName.Mechanic,
+    RoleName.Warehouse,
+    RoleName.Purchasing,
+    RoleName.ReadOnly
+  )
+  listPayments(@Param('id') id: string, @Req() request: RequestWithUser) {
+    return this.workOrdersService.listPayments(id, request.user);
+  }
+
+  @Post(':id/payments')
+  @Roles(RoleName.Admin, RoleName.Reception)
+  addPayment(@Param('id') id: string, @Body() dto: CreateWorkOrderPaymentDto) {
+    return this.workOrdersService.addPayment(id, dto);
   }
 
   @Delete(':id')

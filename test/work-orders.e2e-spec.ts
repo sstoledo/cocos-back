@@ -132,6 +132,7 @@ describe('Work Orders (e2e)', () => {
     ];
     const workOrders: Array<Record<string, unknown>> = [];
     const workOrderServices: Array<Record<string, unknown>> = [];
+    const workOrderPayments: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
     const employees: Array<Record<string, unknown>> = [
       {
@@ -176,7 +177,17 @@ describe('Work Orders (e2e)', () => {
           service: services.find((service) => service.id === line.serviceId),
         }));
 
+    const paymentsFor = (workOrderId: string) =>
+      workOrderPayments
+        .filter((payment) => payment.workOrderId === workOrderId)
+        .sort(
+          (a, b) =>
+            new Date(a.paidAt as Date).getTime() -
+            new Date(b.paidAt as Date).getTime()
+        );
+
     const relationsFor = (workOrder: Record<string, unknown>) => ({
+      payments: paymentsFor(workOrder.id as string),
       employee:
         employees.find((employee) => employee.id === workOrder.employeeId) ??
         null,
@@ -396,6 +407,23 @@ describe('Work Orders (e2e)', () => {
             (line) => line.workOrderId === where.workOrderId
           )
         ),
+      },
+      workOrderPayment: {
+        create: jest.fn(({ data }) => {
+          const payment = {
+            id: `pay-${workOrderPayments.length + 1}`,
+            workOrderId: data.workOrderId,
+            amount: new Prisma.Decimal(data.amount),
+            paymentMethod: data.paymentMethod,
+            note: data.note ?? null,
+            paidAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          workOrderPayments.push(payment);
+          return payment;
+        }),
+        findMany: jest.fn(({ where }) => paymentsFor(where.workOrderId)),
       },
       $transaction: jest.fn((callback) => callback(prisma)),
       workOrderNumberSequence: {
@@ -1460,6 +1488,156 @@ describe('Work Orders (e2e)', () => {
 
       const forbidden = await mechanic().delete('/api/work-orders/wo-1');
       expect(forbidden.status).toBe(403);
+    });
+  });
+
+  describe('POST /api/work-orders/:id/payments', () => {
+    it('registers a partial payment and reflects paidAmount/paymentStatus', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 100, paymentMethod: 'cash', note: 'Adelanto' });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toMatchObject({
+        workOrderId: 'wo-1',
+        amount: '100.00',
+        paymentMethod: 'cash',
+        note: 'Adelanto',
+      });
+
+      // The created order totals 175.50; 100 paid leaves it partial.
+      const detail = await admin().get('/api/work-orders/wo-1');
+      expect(detail.body.paidAmount).toBe('100.00');
+      expect(detail.body.paymentStatus).toBe('partial');
+    });
+
+    it('marks the order as paid once payments cover the total', async () => {
+      await createWorkOrder(admin());
+
+      await reception()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 100, paymentMethod: 'cash' });
+      const second = await reception()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 75.5, paymentMethod: 'transfer' });
+
+      expect(second.status).toBe(201);
+
+      const detail = await admin().get('/api/work-orders/wo-1');
+      expect(detail.body.paidAmount).toBe('175.50');
+      expect(detail.body.paymentStatus).toBe('paid');
+    });
+
+    it('returns 400 WORK_ORDER_OVERPAYMENT beyond the remaining balance', async () => {
+      await createWorkOrder(admin());
+      await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 100, paymentMethod: 'cash' });
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 75.51, paymentMethod: 'cash' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.errorCode).toBe('WORK_ORDER_OVERPAYMENT');
+    });
+
+    it('returns 400 for a non-positive amount', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 0, paymentMethod: 'cash' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 400 for an unknown payment method', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 10, paymentMethod: 'crypto' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 404 WORK_ORDER_NOT_FOUND for an unknown order', async () => {
+      const response = await admin()
+        .post(`/api/work-orders/${MISSING_ID}/payments`)
+        .send({ amount: 10, paymentMethod: 'cash' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.errorCode).toBe('WORK_ORDER_NOT_FOUND');
+    });
+
+    it('returns 409 WORK_ORDER_CANCELLED on a cancelled order', async () => {
+      await createWorkOrder(admin());
+      await admin().patch('/api/work-orders/wo-1/status').send({
+        status: 'cancelled',
+      });
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 10, paymentMethod: 'cash' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('WORK_ORDER_CANCELLED');
+    });
+
+    it('returns 401 when not authenticated and 403 for a mechanic', async () => {
+      await createWorkOrder(admin());
+
+      const unauthenticated = await anonymous()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 10, paymentMethod: 'cash' });
+      expect(unauthenticated.status).toBe(401);
+
+      const forbidden = await mechanic()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 10, paymentMethod: 'cash' });
+      expect(forbidden.status).toBe(403);
+    });
+  });
+
+  describe('GET /api/work-orders/:id/payments', () => {
+    it('lists payments ordered by paidAt asc', async () => {
+      await createWorkOrder(admin());
+      await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 50, paymentMethod: 'cash', note: 'Adelanto' });
+      await admin()
+        .post('/api/work-orders/wo-1/payments')
+        .send({ amount: 25, paymentMethod: 'card' });
+
+      const response = await reception().get('/api/work-orders/wo-1/payments');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0]).toMatchObject({
+        amount: '50.00',
+        paymentMethod: 'cash',
+        note: 'Adelanto',
+      });
+      expect(response.body[1]).toMatchObject({
+        amount: '25.00',
+        paymentMethod: 'card',
+        note: null,
+      });
+    });
+
+    it('returns 404 for an unknown order and 401 for anonymous', async () => {
+      const missing = await admin().get(
+        `/api/work-orders/${MISSING_ID}/payments`
+      );
+      expect(missing.status).toBe(404);
+
+      const unauthenticated = await anonymous().get(
+        '/api/work-orders/wo-1/payments'
+      );
+      expect(unauthenticated.status).toBe(401);
     });
   });
 });

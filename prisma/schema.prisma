@@ -320,6 +320,7 @@ model WorkOrder {
   isActive       Boolean            @default(true) @map("is_active")
   deletedAt      DateTime?          @map("deleted_at")
   services       WorkOrderService[]
+  payments       WorkOrderPayment[]
   stockMovements StockMovement[]
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
@@ -347,6 +348,22 @@ model WorkOrderService {
 
   @@unique([workOrderId, serviceId])
   @@map("work_order_services")
+}
+
+model WorkOrderPayment {
+  id            String        @id @default(cuid())
+  workOrderId   String        @map("work_order_id")
+  workOrder     WorkOrder     @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  amount        Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod @map("payment_method")
+  note          String?
+  paidAt        DateTime      @default(now()) @map("paid_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([paidAt])
+  @@map("work_order_payments")
 }
 
 model Employee {
@@ -541,6 +558,10 @@ model CashClosing {
   declaredCash     Decimal  @map("declared_cash") @db.Decimal(10, 2)
   difference       Decimal  @db.Decimal(10, 2)
   salesCount       Int      @map("sales_count")
+  workOrderPaymentsCash     Decimal @default(0.00) @map("work_order_payments_cash") @db.Decimal(10, 2)
+  workOrderPaymentsCard     Decimal @default(0.00) @map("work_order_payments_card") @db.Decimal(10, 2)
+  workOrderPaymentsTransfer Decimal @default(0.00) @map("work_order_payments_transfer") @db.Decimal(10, 2)
+  workOrderPaymentsCount    Int     @default(0) @map("work_order_payments_count")
   notes            String?
   createdAt        DateTime @default(now()) @map("created_at")
 

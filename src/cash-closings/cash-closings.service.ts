@@ -14,7 +14,7 @@ import type { ListCashClosingsQueryDto } from './dto/list-cash-closings-query.dt
 
 type Client = Pick<
   Prisma.TransactionClient,
-  'cashClosing' | 'sale' | 'workOrder'
+  'cashClosing' | 'sale' | 'workOrder' | 'workOrderPayment'
 >;
 
 interface PeriodTotals {
@@ -22,7 +22,17 @@ interface PeriodTotals {
   expectedCard: Prisma.Decimal;
   expectedTransfer: Prisma.Decimal;
   salesCount: number;
+  workOrderPaymentsCash: Prisma.Decimal;
+  workOrderPaymentsCard: Prisma.Decimal;
+  workOrderPaymentsTransfer: Prisma.Decimal;
+  workOrderPaymentsCount: number;
 }
+
+const zeroMethodTotals = (): Record<PaymentMethod, Prisma.Decimal> => ({
+  [PaymentMethod.cash]: new Prisma.Decimal(0),
+  [PaymentMethod.card]: new Prisma.Decimal(0),
+  [PaymentMethod.transfer]: new Prisma.Decimal(0),
+});
 
 @Injectable()
 export class CashClosingsService {
@@ -45,6 +55,10 @@ export class CashClosingsService {
         expectedCard: totals.expectedCard.toFixed(2),
         expectedTransfer: totals.expectedTransfer.toFixed(2),
         salesCount: totals.salesCount,
+        workOrderPaymentsCash: totals.workOrderPaymentsCash.toFixed(2),
+        workOrderPaymentsCard: totals.workOrderPaymentsCard.toFixed(2),
+        workOrderPaymentsTransfer: totals.workOrderPaymentsTransfer.toFixed(2),
+        workOrderPaymentsCount: totals.workOrderPaymentsCount,
       },
       { excludeExtraneousValues: true }
     );
@@ -70,7 +84,11 @@ export class CashClosingsService {
           now
         );
 
-        if (totals.salesCount === 0 && doneWorkOrdersCount === 0) {
+        if (
+          totals.salesCount === 0 &&
+          doneWorkOrdersCount === 0 &&
+          totals.workOrderPaymentsCount === 0
+        ) {
           throw new BadRequestException({
             message: 'No activity in the open period',
             errorCode: 'CLOSING_NO_ACTIVITY',
@@ -95,6 +113,10 @@ export class CashClosingsService {
             declaredCash,
             difference,
             salesCount: totals.salesCount,
+            workOrderPaymentsCash: totals.workOrderPaymentsCash,
+            workOrderPaymentsCard: totals.workOrderPaymentsCard,
+            workOrderPaymentsTransfer: totals.workOrderPaymentsTransfer,
+            workOrderPaymentsCount: totals.workOrderPaymentsCount,
             notes: dto.notes ?? null,
           },
           include: { closedBy: { select: { id: true, name: true } } },
@@ -170,20 +192,29 @@ export class CashClosingsService {
       return lastClosing.periodEnd;
     }
 
-    const [earliestSale, earliestDoneWorkOrder] = await Promise.all([
-      client.sale.findFirst({
-        where: { status: 'completed', isActive: true },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      }),
-      client.workOrder.findFirst({
-        where: { status: 'done', isActive: true },
-        orderBy: { updatedAt: 'asc' },
-        select: { updatedAt: true },
-      }),
-    ]);
+    const [earliestSale, earliestDoneWorkOrder, earliestPayment] =
+      await Promise.all([
+        client.sale.findFirst({
+          where: { status: 'completed', isActive: true },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true },
+        }),
+        client.workOrder.findFirst({
+          where: { status: 'done', isActive: true },
+          orderBy: { updatedAt: 'asc' },
+          select: { updatedAt: true },
+        }),
+        client.workOrderPayment.findFirst({
+          orderBy: { paidAt: 'asc' },
+          select: { paidAt: true },
+        }),
+      ]);
 
-    const anchors = [earliestSale?.createdAt, earliestDoneWorkOrder?.updatedAt]
+    const anchors = [
+      earliestSale?.createdAt,
+      earliestDoneWorkOrder?.updatedAt,
+      earliestPayment?.paidAt,
+    ]
       .filter((date): date is Date => date !== undefined)
       .sort((a, b) => a.getTime() - b.getTime());
     return anchors[0] ?? null;
@@ -191,7 +222,9 @@ export class CashClosingsService {
 
   /**
    * SAL-NF4: only completed + active sales enter the totals; cancelled sales
-   * never do. Methods without rows in the period are zero-filled.
+   * never do. Work order payments aggregate by collection date (`paidAt`),
+   * not by order status: cash enters the till when it is collected. Methods
+   * without rows in the period are zero-filled.
    */
   private async aggregatePeriod(
     client: Client,
@@ -208,31 +241,60 @@ export class CashClosingsService {
       createdAt,
     };
 
-    const [groups, salesCount] = await Promise.all([
-      client.sale.groupBy({
-        by: ['paymentMethod'],
-        where,
-        _sum: { totalAmount: true },
-      }),
-      client.sale.count({ where }),
-    ]);
-
-    const totals: Record<PaymentMethod, Prisma.Decimal> = {
-      [PaymentMethod.cash]: new Prisma.Decimal(0),
-      [PaymentMethod.card]: new Prisma.Decimal(0),
-      [PaymentMethod.transfer]: new Prisma.Decimal(0),
+    const paidAt: Prisma.DateTimeFilter = { lt: now };
+    if (periodStart) {
+      paidAt.gte = periodStart;
+    }
+    const paymentWhere: Prisma.WorkOrderPaymentWhereInput = {
+      paidAt,
+      workOrder: { isActive: true },
     };
-    for (const group of groups) {
-      totals[group.paymentMethod] = new Prisma.Decimal(
+
+    const [saleGroups, salesCount, paymentGroups, workOrderPaymentsCount] =
+      await Promise.all([
+        client.sale.groupBy({
+          by: ['paymentMethod'],
+          where,
+          _sum: { totalAmount: true },
+        }),
+        client.sale.count({ where }),
+        client.workOrderPayment.groupBy({
+          by: ['paymentMethod'],
+          where: paymentWhere,
+          _sum: { amount: true },
+        }),
+        client.workOrderPayment.count({ where: paymentWhere }),
+      ]);
+
+    const saleTotals = zeroMethodTotals();
+    for (const group of saleGroups) {
+      saleTotals[group.paymentMethod] = new Prisma.Decimal(
         group._sum.totalAmount ?? 0
       );
     }
 
+    const paymentTotals = zeroMethodTotals();
+    for (const group of paymentGroups) {
+      paymentTotals[group.paymentMethod] = new Prisma.Decimal(
+        group._sum.amount ?? 0
+      );
+    }
+
     return {
-      expectedCash: totals[PaymentMethod.cash],
-      expectedCard: totals[PaymentMethod.card],
-      expectedTransfer: totals[PaymentMethod.transfer],
+      expectedCash: saleTotals[PaymentMethod.cash].plus(
+        paymentTotals[PaymentMethod.cash]
+      ),
+      expectedCard: saleTotals[PaymentMethod.card].plus(
+        paymentTotals[PaymentMethod.card]
+      ),
+      expectedTransfer: saleTotals[PaymentMethod.transfer].plus(
+        paymentTotals[PaymentMethod.transfer]
+      ),
       salesCount,
+      workOrderPaymentsCash: paymentTotals[PaymentMethod.cash],
+      workOrderPaymentsCard: paymentTotals[PaymentMethod.card],
+      workOrderPaymentsTransfer: paymentTotals[PaymentMethod.transfer],
+      workOrderPaymentsCount,
     };
   }
 
@@ -265,6 +327,10 @@ export class CashClosingsService {
     declaredCash: Prisma.Decimal;
     difference: Prisma.Decimal;
     salesCount: number;
+    workOrderPaymentsCash: Prisma.Decimal;
+    workOrderPaymentsCard: Prisma.Decimal;
+    workOrderPaymentsTransfer: Prisma.Decimal;
+    workOrderPaymentsCount: number;
     notes: string | null;
     createdAt: Date;
     closedBy: { id: string; name: string };
@@ -281,6 +347,10 @@ export class CashClosingsService {
         declaredCash: closing.declaredCash.toFixed(2),
         difference: closing.difference.toFixed(2),
         salesCount: closing.salesCount,
+        workOrderPaymentsCash: closing.workOrderPaymentsCash.toFixed(2),
+        workOrderPaymentsCard: closing.workOrderPaymentsCard.toFixed(2),
+        workOrderPaymentsTransfer: closing.workOrderPaymentsTransfer.toFixed(2),
+        workOrderPaymentsCount: closing.workOrderPaymentsCount,
         notes: closing.notes,
         createdAt: closing.createdAt,
         closedBy: closing.closedBy,
