@@ -48,29 +48,6 @@ describe('WorkOrdersService', () => {
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   };
 
-  const workOrderProductRecord = {
-    id: 'wop-1',
-    workOrderId: 'wo-1',
-    productId: 'prod-1',
-    quantity: 2,
-    unitPriceSnapshot: new Prisma.Decimal(40.25),
-    subtotal: new Prisma.Decimal(80.5),
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-  };
-
-  const productRecord = {
-    id: 'prod-1',
-    code: 'OIL-5W30',
-    name: 'Engine oil 5W-30',
-    description: 'Synthetic engine oil',
-    price: new Prisma.Decimal(40.25),
-    isActive: true,
-    deletedAt: null,
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-  };
-
   const vehicleRecord = {
     id: 'vehicle-1',
     plate: 'ABC123',
@@ -170,19 +147,11 @@ describe('WorkOrdersService', () => {
         deleteMany: jest.fn(),
         findMany: jest.fn(),
       },
-      workOrderProduct: {
-        createMany: jest.fn(),
-        deleteMany: jest.fn(),
-        findMany: jest.fn(),
-      },
       workOrderNumberSequence: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
       },
       service: {
-        findUnique: jest.fn(),
-      },
-      product: {
         findUnique: jest.fn(),
       },
       employee: {
@@ -191,18 +160,9 @@ describe('WorkOrdersService', () => {
       branch: {
         findUnique: jest.fn(),
       },
-      lotItem: {
-        aggregate: jest.fn(),
-        findMany: jest.fn(),
-        updateMany: jest.fn(),
-      },
-      stockMovement: {
-        create: jest.fn(),
-      },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
     (prisma.workOrderService.findMany as jest.Mock).mockResolvedValue([]);
-    (prisma.workOrderProduct.findMany as jest.Mock).mockResolvedValue([]);
     (prisma.$transaction as jest.Mock).mockImplementation(
       (callback: (tx: unknown) => unknown) => callback(prisma)
     );
@@ -485,138 +445,7 @@ describe('WorkOrdersService', () => {
       expect(result.totalAmount).toBe('100.00');
     });
 
-    it('creates a products-only order, defaulting unitPriceSnapshot to the product price', async () => {
-      const dto: CreateWorkOrderDto = {
-        clientId: 'client-1',
-        vehicleId: 'vehicle-1',
-        products: [{ productId: 'prod-1', quantity: 2 }],
-      };
-
-      (clientsService.exists as jest.Mock).mockResolvedValue(true);
-      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue(productRecord);
-      (prisma.workOrderNumberSequence.upsert as jest.Mock).mockResolvedValue({
-        ...sequenceRecord,
-        lastNumber: 1,
-      });
-      (prisma.workOrder.create as jest.Mock).mockResolvedValue({
-        ...workOrderRecord,
-        totalAmount: new Prisma.Decimal(80.5),
-        services: [],
-        products: [{ ...workOrderProductRecord, product: productRecord }],
-      });
-
-      const result = await service.create(dto);
-
-      expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'prod-1', isActive: true },
-      });
-      const createArgs = (prisma.workOrder.create as jest.Mock).mock
-        .calls[0][0];
-      expect(createArgs.data.services.create).toEqual([]);
-      expect(createArgs.data.products.create).toHaveLength(1);
-      expect(Number(createArgs.data.products.create[0].unitPriceSnapshot)).toBe(
-        40.25
-      );
-      expect(Number(createArgs.data.products.create[0].subtotal)).toBe(80.5);
-      expect(Number(createArgs.data.totalAmount)).toBe(80.5);
-      expect(result.products[0]).toMatchObject({
-        productId: 'prod-1',
-        unitPriceSnapshot: '40.25',
-        subtotal: '80.50',
-      });
-    });
-
-    it('creates a mixed order with totalAmount equal to service plus product subtotals and honors unitPrice override', async () => {
-      const dto: CreateWorkOrderDto = {
-        clientId: 'client-1',
-        vehicleId: 'vehicle-1',
-        services: [{ serviceId: 'svc-1', quantity: 3 }],
-        products: [{ productId: 'prod-1', quantity: 1, unitPrice: 80.5 }],
-      };
-
-      (clientsService.exists as jest.Mock).mockResolvedValue(true);
-      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
-      (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue(productRecord);
-      (prisma.workOrderNumberSequence.upsert as jest.Mock).mockResolvedValue({
-        ...sequenceRecord,
-        lastNumber: 1,
-      });
-      (prisma.workOrder.create as jest.Mock).mockResolvedValue({
-        ...workOrderRecord,
-        totalAmount: new Prisma.Decimal(230.5),
-        services: [
-          {
-            ...workOrderServiceRecord,
-            quantity: 3,
-            unitPriceSnapshot: new Prisma.Decimal(50.0),
-            subtotal: new Prisma.Decimal(150.0),
-            service: serviceRecord,
-          },
-        ],
-        products: [
-          {
-            ...workOrderProductRecord,
-            quantity: 1,
-            unitPriceSnapshot: new Prisma.Decimal(80.5),
-            subtotal: new Prisma.Decimal(80.5),
-            product: productRecord,
-          },
-        ],
-      });
-
-      const result = await service.create(dto);
-
-      const createArgs = (prisma.workOrder.create as jest.Mock).mock
-        .calls[0][0];
-      expect(Number(createArgs.data.products.create[0].unitPriceSnapshot)).toBe(
-        80.5
-      );
-      expect(Number(createArgs.data.totalAmount)).toBe(230.5);
-      expect(result.totalAmount).toBe('230.50');
-    });
-
-    it('throws NotFoundException with errorCode PRODUCT_NOT_FOUND when the product does not exist', async () => {
-      const dto: CreateWorkOrderDto = {
-        clientId: 'client-1',
-        vehicleId: 'vehicle-1',
-        products: [{ productId: 'prod-missing', quantity: 1 }],
-      };
-      (clientsService.exists as jest.Mock).mockResolvedValue(true);
-      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.create(dto)).rejects.toThrow(NotFoundException);
-      await expect(service.create(dto)).rejects.toMatchObject({
-        response: expect.objectContaining({
-          errorCode: 'PRODUCT_NOT_FOUND',
-        }),
-      });
-      expect(prisma.workOrder.create).not.toHaveBeenCalled();
-    });
-
-    it('throws PRODUCT_NOT_FOUND for an inactive product (lookup filters isActive)', async () => {
-      const dto: CreateWorkOrderDto = {
-        clientId: 'client-1',
-        vehicleId: 'vehicle-1',
-        products: [{ productId: 'prod-1', quantity: 1 }],
-      };
-      (clientsService.exists as jest.Mock).mockResolvedValue(true);
-      (vehiclesService.findOne as jest.Mock).mockResolvedValue(vehicleRecord);
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.create(dto)).rejects.toMatchObject({
-        response: expect.objectContaining({
-          errorCode: 'PRODUCT_NOT_FOUND',
-        }),
-      });
-      expect(prisma.product.findUnique).toHaveBeenCalledWith({
-        where: { id: 'prod-1', isActive: true },
-      });
-    });
-
-    it('throws BadRequestException when neither services nor products are provided', async () => {
+    it('throws BadRequestException when services are not provided', async () => {
       const dto = {
         clientId: 'client-1',
         vehicleId: 'vehicle-1',
@@ -632,12 +461,11 @@ describe('WorkOrdersService', () => {
       expect(prisma.workOrder.create).not.toHaveBeenCalled();
     });
 
-    it('throws BadRequestException when both services and products are empty arrays', async () => {
+    it('throws BadRequestException when services is an empty array', async () => {
       const dto: CreateWorkOrderDto = {
         clientId: 'client-1',
         vehicleId: 'vehicle-1',
         services: [],
-        products: [],
       };
 
       await expect(service.create(dto)).rejects.toThrow(BadRequestException);
@@ -1047,7 +875,6 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
-          products: { include: { product: true } },
           employee: true,
           branch: true,
         },
@@ -1082,7 +909,6 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
-          products: { include: { product: true } },
           employee: true,
           branch: true,
         },
@@ -1106,7 +932,6 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
-          products: { include: { product: true } },
           employee: true,
           branch: true,
         },
@@ -1117,43 +942,12 @@ describe('WorkOrdersService', () => {
       });
     });
 
-    it('returns work order with product lines serialized as strings', async () => {
-      const record = {
-        ...workOrderRecord,
-        services: [],
-        products: [{ ...workOrderProductRecord, product: productRecord }],
-      };
-      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(record);
-
-      const result = await service.findOne('wo-1');
-
-      expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
-        where: { id: 'wo-1', isActive: true },
-        include: {
-          client: true,
-          vehicle: true,
-          services: { include: { service: true } },
-          products: { include: { product: true } },
-          employee: true,
-          branch: true,
-        },
-      });
-      expect(result.products[0]).toMatchObject({
-        productId: 'prod-1',
-        quantity: 2,
-        unitPriceSnapshot: '40.25',
-        subtotal: '80.50',
-        product: { id: 'prod-1', code: 'OIL-5W30', price: '40.25' },
-      });
-    });
-
     it('returns client and vehicle summaries on findOne', async () => {
       const record = {
         ...workOrderRecord,
         client: clientRecord,
         vehicle: vehicleRecord,
         services: [],
-        products: [],
       };
       (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(record);
 
@@ -1195,7 +989,6 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
-          products: { include: { product: true } },
           employee: true,
           branch: true,
         },
@@ -1368,7 +1161,6 @@ describe('WorkOrdersService', () => {
         ...workOrderRecord,
         status,
         employeeId,
-        products: [],
       });
 
       const fullRecordAt = (status: string, employeeId: string | null) => ({
@@ -1376,7 +1168,6 @@ describe('WorkOrdersService', () => {
         status,
         employeeId,
         services: [],
-        products: [],
       });
 
       it('transitions an order assigned to the linked employee', async () => {
@@ -1574,67 +1365,7 @@ describe('WorkOrdersService', () => {
       expect(result.totalAmount).toBe('270.00');
     });
 
-    it('replaces only product lines in a single transaction and recomputes the union total', async () => {
-      const dto: UpdateWorkOrderDto = {
-        products: [{ productId: 'prod-1', quantity: 1, unitPrice: 80.5 }],
-      };
-
-      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
-        workOrderRecord
-      );
-      (prisma.product.findUnique as jest.Mock).mockResolvedValue(productRecord);
-      (prisma.workOrderService.findMany as jest.Mock).mockResolvedValue([
-        { ...workOrderServiceRecord, subtotal: new Prisma.Decimal(150.0) },
-      ]);
-      (prisma.workOrderProduct.deleteMany as jest.Mock).mockResolvedValue({
-        count: 2,
-      });
-      (prisma.workOrderProduct.createMany as jest.Mock).mockResolvedValue({
-        count: 1,
-      });
-      (prisma.workOrder.update as jest.Mock).mockResolvedValue({
-        ...workOrderRecord,
-        totalAmount: new Prisma.Decimal(230.5),
-        services: [{ ...workOrderServiceRecord, service: serviceRecord }],
-        products: [
-          {
-            ...workOrderProductRecord,
-            quantity: 1,
-            unitPriceSnapshot: new Prisma.Decimal(80.5),
-            subtotal: new Prisma.Decimal(80.5),
-            product: productRecord,
-          },
-        ],
-      });
-
-      const result = await service.update('wo-1', dto);
-
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      expect(prisma.workOrderService.deleteMany).not.toHaveBeenCalled();
-      expect(prisma.workOrderProduct.deleteMany).toHaveBeenCalledWith({
-        where: { workOrderId: 'wo-1' },
-      });
-      expect(prisma.workOrderProduct.createMany).toHaveBeenCalledWith({
-        data: [
-          {
-            workOrderId: 'wo-1',
-            productId: 'prod-1',
-            quantity: 1,
-            unitPriceSnapshot: expect.any(Prisma.Decimal),
-            subtotal: expect.any(Prisma.Decimal),
-          },
-        ],
-      });
-      expect(prisma.workOrderService.findMany).toHaveBeenCalledWith({
-        where: { workOrderId: 'wo-1' },
-      });
-      const updateArgs = (prisma.workOrder.update as jest.Mock).mock
-        .calls[0][0];
-      expect(Number(updateArgs.data.totalAmount)).toBe(230.5);
-      expect(result.totalAmount).toBe('230.50');
-    });
-
-    it('replaces only service lines in a single transaction and keeps existing product lines in the total', async () => {
+    it('replaces service lines in a single transaction and recomputes the total', async () => {
       const dto: UpdateWorkOrderDto = {
         services: [{ serviceId: 'svc-1', quantity: 3 }],
       };
@@ -1643,9 +1374,6 @@ describe('WorkOrdersService', () => {
         workOrderRecord
       );
       (prisma.service.findUnique as jest.Mock).mockResolvedValue(serviceRecord);
-      (prisma.workOrderProduct.findMany as jest.Mock).mockResolvedValue([
-        { ...workOrderProductRecord, subtotal: new Prisma.Decimal(80.5) },
-      ]);
       (prisma.workOrderService.deleteMany as jest.Mock).mockResolvedValue({
         count: 2,
       });
@@ -1654,7 +1382,7 @@ describe('WorkOrdersService', () => {
       });
       (prisma.workOrder.update as jest.Mock).mockResolvedValue({
         ...workOrderRecord,
-        totalAmount: new Prisma.Decimal(230.5),
+        totalAmount: new Prisma.Decimal(150.0),
         services: [
           {
             ...workOrderServiceRecord,
@@ -1664,23 +1392,18 @@ describe('WorkOrdersService', () => {
             service: serviceRecord,
           },
         ],
-        products: [{ ...workOrderProductRecord, product: productRecord }],
       });
 
       const result = await service.update('wo-1', dto);
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      expect(prisma.workOrderProduct.deleteMany).not.toHaveBeenCalled();
       expect(prisma.workOrderService.deleteMany).toHaveBeenCalledWith({
-        where: { workOrderId: 'wo-1' },
-      });
-      expect(prisma.workOrderProduct.findMany).toHaveBeenCalledWith({
         where: { workOrderId: 'wo-1' },
       });
       const updateArgs = (prisma.workOrder.update as jest.Mock).mock
         .calls[0][0];
-      expect(Number(updateArgs.data.totalAmount)).toBe(230.5);
-      expect(result.totalAmount).toBe('230.50');
+      expect(Number(updateArgs.data.totalAmount)).toBe(150.0);
+      expect(result.totalAmount).toBe('150.00');
     });
 
     it('updates only description when services not provided', async () => {
@@ -1903,14 +1626,12 @@ describe('WorkOrdersService', () => {
     const orderAt = (status: string) => ({
       ...workOrderRecord,
       status,
-      products: [],
     });
 
     const fullRecordAt = (status: string) => ({
       ...workOrderRecord,
       status,
       services: [],
-      products: [],
     });
 
     const mockSuccessfulTransition = (
@@ -2032,7 +1753,7 @@ describe('WorkOrdersService', () => {
       });
     });
 
-    it('completes a services-only order with zero stock operations', async () => {
+    it('completes an order with zero stock operations', async () => {
       mockSuccessfulTransition('in_progress', 'done');
 
       const result = await service.transitionStatus(
@@ -2041,10 +1762,6 @@ describe('WorkOrdersService', () => {
       );
 
       expect(result.status).toBe('done');
-      expect(prisma.lotItem.aggregate).not.toHaveBeenCalled();
-      expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
-      expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
-      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
     });
 
     describe('notification generation (B11.3)', () => {
@@ -2127,208 +1844,6 @@ describe('WorkOrdersService', () => {
         await expect(
           service.transitionStatus('wo-1', WorkOrderStatus.done)
         ).rejects.toThrow('notification write failed');
-      });
-    });
-
-    describe('done stock consumption', () => {
-      const orderWithProducts = (
-        lines: Array<{ productId: string; quantity: number }>
-      ) => ({
-        ...workOrderRecord,
-        status: 'in_progress',
-        products: lines.map((line, index) => ({
-          ...workOrderProductRecord,
-          id: `wop-${index + 1}`,
-          productId: line.productId,
-          quantity: line.quantity,
-        })),
-      });
-
-      const mockOrderAndRefresh = (
-        order: ReturnType<typeof orderWithProducts>
-      ) => {
-        (prisma.workOrder.findUnique as jest.Mock)
-          .mockResolvedValueOnce(order)
-          .mockResolvedValueOnce(fullRecordAt('done'));
-      };
-
-      it('consumes stock FIFO across multiple lots and writes one movement per slice', async () => {
-        mockOrderAndRefresh(
-          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
-        );
-        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
-          _sum: { remainingQuantity: 7 },
-        });
-        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
-          { id: 'lot-item-a', remainingQuantity: 3 },
-          { id: 'lot-item-b', remainingQuantity: 4 },
-        ]);
-        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
-          count: 1,
-        });
-        (prisma.stockMovement.create as jest.Mock).mockResolvedValue({});
-        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
-          count: 1,
-        });
-
-        const result = await service.transitionStatus(
-          'wo-1',
-          WorkOrderStatus.done
-        );
-
-        expect(result.status).toBe('done');
-        expect(prisma.lotItem.aggregate).toHaveBeenCalledWith({
-          _sum: { remainingQuantity: true },
-          where: { productId: 'prod-1', remainingQuantity: { gt: 0 } },
-        });
-        expect(prisma.lotItem.findMany).toHaveBeenCalledWith({
-          where: { productId: 'prod-1', remainingQuantity: { gt: 0 } },
-          orderBy: { lot: { receivedAt: 'asc' } },
-        });
-        expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(1, {
-          where: { id: 'lot-item-a', remainingQuantity: { gte: 3 } },
-          data: { remainingQuantity: { decrement: 3 } },
-        });
-        expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(2, {
-          where: { id: 'lot-item-b', remainingQuantity: { gte: 2 } },
-          data: { remainingQuantity: { decrement: 2 } },
-        });
-        expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(1, {
-          data: {
-            productId: 'prod-1',
-            lotItemId: 'lot-item-a',
-            workOrderId: 'wo-1',
-            type: 'service_usage',
-            quantity: -3,
-            reason: 'Work order OC-2026-000001 completion',
-          },
-        });
-        expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(2, {
-          data: {
-            productId: 'prod-1',
-            lotItemId: 'lot-item-b',
-            workOrderId: 'wo-1',
-            type: 'service_usage',
-            quantity: -2,
-            reason: 'Work order OC-2026-000001 completion',
-          },
-        });
-        expect(prisma.workOrder.updateMany).toHaveBeenCalledWith({
-          where: { id: 'wo-1', status: 'in_progress' },
-          data: { status: 'done' },
-        });
-      });
-
-      it('consumes a single lot exactly when available equals requested', async () => {
-        mockOrderAndRefresh(
-          orderWithProducts([{ productId: 'prod-1', quantity: 3 }])
-        );
-        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
-          _sum: { remainingQuantity: 3 },
-        });
-        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
-          { id: 'lot-item-a', remainingQuantity: 3 },
-        ]);
-        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
-          count: 1,
-        });
-        (prisma.stockMovement.create as jest.Mock).mockResolvedValue({});
-        (prisma.workOrder.updateMany as jest.Mock).mockResolvedValue({
-          count: 1,
-        });
-
-        await service.transitionStatus('wo-1', WorkOrderStatus.done);
-
-        expect(prisma.lotItem.updateMany).toHaveBeenCalledTimes(1);
-        expect(prisma.lotItem.updateMany).toHaveBeenCalledWith({
-          where: { id: 'lot-item-a', remainingQuantity: { gte: 3 } },
-          data: { remainingQuantity: { decrement: 3 } },
-        });
-        expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
-        expect(prisma.stockMovement.create).toHaveBeenCalledWith({
-          data: expect.objectContaining({ quantity: -3 }),
-        });
-      });
-
-      it('aborts with 409 INSUFFICIENT_STOCK when aggregate stock is short and performs no writes', async () => {
-        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
-          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
-        );
-        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
-          _sum: { remainingQuantity: 4 },
-        });
-
-        await expect(
-          service.transitionStatus('wo-1', WorkOrderStatus.done)
-        ).rejects.toThrow(ConflictException);
-        await expect(
-          service.transitionStatus('wo-1', WorkOrderStatus.done)
-        ).rejects.toMatchObject({
-          response: expect.objectContaining({
-            errorCode: 'INSUFFICIENT_STOCK',
-            details: [{ productId: 'prod-1', requested: 5, available: 4 }],
-          }),
-        });
-        expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
-        expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
-        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
-        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
-      });
-
-      it('collects shortages across all product lines (treating null sums as zero) before aborting', async () => {
-        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
-          orderWithProducts([
-            { productId: 'prod-1', quantity: 5 },
-            { productId: 'prod-2', quantity: 3 },
-          ])
-        );
-        (prisma.lotItem.aggregate as jest.Mock)
-          .mockResolvedValueOnce({ _sum: { remainingQuantity: 4 } })
-          .mockResolvedValueOnce({ _sum: { remainingQuantity: null } });
-
-        await expect(
-          service.transitionStatus('wo-1', WorkOrderStatus.done)
-        ).rejects.toMatchObject({
-          response: expect.objectContaining({
-            errorCode: 'INSUFFICIENT_STOCK',
-            details: [
-              { productId: 'prod-1', requested: 5, available: 4 },
-              { productId: 'prod-2', requested: 3, available: 0 },
-            ],
-          }),
-        });
-        expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
-        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
-        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
-      });
-
-      it('aborts with 409 INSUFFICIENT_STOCK when a lot guard matches zero rows (concurrent consumption)', async () => {
-        (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(
-          orderWithProducts([{ productId: 'prod-1', quantity: 5 }])
-        );
-        (prisma.lotItem.aggregate as jest.Mock).mockResolvedValue({
-          _sum: { remainingQuantity: 7 },
-        });
-        (prisma.lotItem.findMany as jest.Mock).mockResolvedValue([
-          { id: 'lot-item-a', remainingQuantity: 3 },
-          { id: 'lot-item-b', remainingQuantity: 4 },
-        ]);
-        (prisma.lotItem.updateMany as jest.Mock).mockResolvedValue({
-          count: 0,
-        });
-
-        await expect(
-          service.transitionStatus('wo-1', WorkOrderStatus.done)
-        ).rejects.toThrow(ConflictException);
-        await expect(
-          service.transitionStatus('wo-1', WorkOrderStatus.done)
-        ).rejects.toMatchObject({
-          response: expect.objectContaining({
-            errorCode: 'INSUFFICIENT_STOCK',
-          }),
-        });
-        expect(prisma.stockMovement.create).not.toHaveBeenCalled();
-        expect(prisma.workOrder.updateMany).not.toHaveBeenCalled();
       });
     });
   });
