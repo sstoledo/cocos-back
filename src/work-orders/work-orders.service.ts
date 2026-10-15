@@ -11,9 +11,11 @@ import { ClientsService } from '../clients/clients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
+import type { CreateWorkOrderPaymentDto } from './dto/create-work-order-payment.dto';
 import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import type { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
 import type { UpdateWorkOrderDto } from './dto/update-work-order.dto';
+import { WorkOrderPaymentResponseDto } from './dto/work-order-payment-response.dto';
 import { WorkOrderResponseDto } from './dto/work-order-response.dto';
 
 const ALLOWED_TRANSITIONS: Record<WorkOrderStatus, WorkOrderStatus[]> = {
@@ -35,6 +37,7 @@ const WORK_ORDER_INCLUDE = {
   client: true,
   vehicle: true,
   services: { include: { service: true } },
+  payments: { orderBy: { paidAt: 'asc' as const } },
   ...ASSIGNMENT_INCLUDE,
 } as const;
 
@@ -320,6 +323,72 @@ export class WorkOrdersService {
     return this.toResponse(updated);
   }
 
+  /**
+   * Registers a partial (or full) payment against a work order. Payments are
+   * append-only: there is no edit/delete, corrections happen via new entries
+   * or order cancellation. The overpayment guard re-reads the paid sum inside
+   * the transaction so concurrent payments cannot exceed the balance.
+   */
+  async addPayment(id: string, dto: CreateWorkOrderPaymentDto) {
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const workOrder = await tx.workOrder.findUnique({
+        where: { id, isActive: true },
+        include: { payments: true },
+      });
+
+      if (!workOrder) {
+        throw this.workOrderNotFound();
+      }
+
+      if (workOrder.status === WorkOrderStatus.cancelled) {
+        throw new ConflictException({
+          message: 'Cannot register payments on a cancelled work order',
+          errorCode: 'WORK_ORDER_CANCELLED',
+        });
+      }
+
+      const amount = new Prisma.Decimal(dto.amount);
+      const paidAmount = workOrder.payments.reduce(
+        (total, payment) => total.plus(payment.amount),
+        new Prisma.Decimal(0)
+      );
+      const remaining = new Prisma.Decimal(workOrder.totalAmount).minus(
+        paidAmount
+      );
+
+      if (amount.greaterThan(remaining)) {
+        throw new BadRequestException({
+          message: `Payment amount exceeds the remaining balance (${remaining.toFixed(2)})`,
+          errorCode: 'WORK_ORDER_OVERPAYMENT',
+        });
+      }
+
+      return tx.workOrderPayment.create({
+        data: {
+          workOrderId: id,
+          amount,
+          paymentMethod: dto.paymentMethod,
+          note: dto.note ?? null,
+        },
+      });
+    });
+
+    return this.toPaymentResponse(payment);
+  }
+
+  async listPayments(id: string, user?: User & { role: Role }) {
+    // Reuses the WO read scope (including the mechanic assignment filter)
+    // so a payment listing can never leak an order the user cannot see.
+    await this.findOne(id, user);
+
+    const payments = await this.prisma.workOrderPayment.findMany({
+      where: { workOrderId: id },
+      orderBy: { paidAt: 'asc' },
+    });
+
+    return payments.map((payment) => this.toPaymentResponse(payment));
+  }
+
   async remove(id: string) {
     await this.findOne(id);
 
@@ -497,6 +566,13 @@ export class WorkOrdersService {
     branch?: { id: string; name: string } | null;
     client?: { id: string; name: string };
     vehicle?: { id: string; plate: string; brand: string; model: string };
+    payments?: Array<{
+      id: string;
+      amount: Prisma.Decimal;
+      paymentMethod: string;
+      note: string | null;
+      paidAt: Date;
+    }>;
     services?: Array<{
       id: string;
       serviceId: string;
@@ -533,11 +609,25 @@ export class WorkOrdersService {
       },
     }));
 
+    const totalAmount = Number(workOrder.totalAmount);
+    const paidAmount = (workOrder.payments ?? []).reduce(
+      (total, payment) => total + Number(payment.amount),
+      0
+    );
+    const paymentStatus =
+      paidAmount <= 0
+        ? 'pending'
+        : paidAmount < totalAmount
+          ? 'partial'
+          : 'paid';
+
     return plainToInstance(
       WorkOrderResponseDto,
       {
         ...workOrder,
-        totalAmount: Number(workOrder.totalAmount).toFixed(2),
+        totalAmount: totalAmount.toFixed(2),
+        paidAmount: paidAmount.toFixed(2),
+        paymentStatus,
         employee: workOrder.employee
           ? { id: workOrder.employee.id, name: workOrder.employee.name }
           : null,
@@ -557,6 +647,23 @@ export class WorkOrdersService {
           : undefined,
         services: services ?? [],
       },
+      { excludeExtraneousValues: true }
+    );
+  }
+
+  private toPaymentResponse(payment: {
+    id: string;
+    workOrderId: string;
+    amount: Prisma.Decimal;
+    paymentMethod: string;
+    note: string | null;
+    paidAt: Date;
+    createdAt: Date;
+    updatedAt: Date;
+  }): WorkOrderPaymentResponseDto {
+    return plainToInstance(
+      WorkOrderPaymentResponseDto,
+      { ...payment, amount: Number(payment.amount).toFixed(2) },
       { excludeExtraneousValues: true }
     );
   }

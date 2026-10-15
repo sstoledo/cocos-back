@@ -9,3 +9,5 @@ export {
   WorkOrderResponseDto,
   WorkOrderServiceResponseDto,
 } from './work-order-response.dto';
+export { CreateWorkOrderPaymentDto } from './create-work-order-payment.dto';
+export { WorkOrderPaymentResponseDto } from './work-order-payment-response.dto';

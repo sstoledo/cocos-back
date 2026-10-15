@@ -147,6 +147,10 @@ describe('WorkOrdersService', () => {
         deleteMany: jest.fn(),
         findMany: jest.fn(),
       },
+      workOrderPayment: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+      },
       workOrderNumberSequence: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
@@ -875,6 +879,7 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
+          payments: { orderBy: { paidAt: 'asc' } },
           employee: true,
           branch: true,
         },
@@ -909,6 +914,7 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
+          payments: { orderBy: { paidAt: 'asc' } },
           employee: true,
           branch: true,
         },
@@ -932,6 +938,7 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
+          payments: { orderBy: { paidAt: 'asc' } },
           employee: true,
           branch: true,
         },
@@ -989,6 +996,7 @@ describe('WorkOrdersService', () => {
           client: true,
           vehicle: true,
           services: { include: { service: true } },
+          payments: { orderBy: { paidAt: 'asc' } },
           employee: true,
           branch: true,
         },
@@ -1875,6 +1883,219 @@ describe('WorkOrdersService', () => {
       (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(service.remove('wo-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('addPayment', () => {
+    const paymentRecord = {
+      id: 'pay-1',
+      workOrderId: 'wo-1',
+      amount: new Prisma.Decimal('50.00'),
+      paymentMethod: 'cash',
+      note: 'Adelanto',
+      paidAt: new Date('2026-01-02T10:00:00.000Z'),
+      createdAt: new Date('2026-01-02T10:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T10:00:00.000Z'),
+    };
+
+    beforeEach(() => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        payments: [],
+      });
+      (prisma.workOrderPayment.create as jest.Mock).mockImplementation(
+        (args: { data: Record<string, unknown> }) => ({
+          ...paymentRecord,
+          ...args.data,
+        })
+      );
+    });
+
+    it('creates a payment inside a transaction and returns the response DTO', async () => {
+      const result = await service.addPayment('wo-1', {
+        amount: 50,
+        paymentMethod: 'cash',
+        note: 'Adelanto',
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.workOrder.findUnique).toHaveBeenCalledWith({
+        where: { id: 'wo-1', isActive: true },
+        include: { payments: true },
+      });
+      expect(prisma.workOrderPayment.create).toHaveBeenCalledWith({
+        data: {
+          workOrderId: 'wo-1',
+          amount: new Prisma.Decimal(50),
+          paymentMethod: 'cash',
+          note: 'Adelanto',
+        },
+      });
+      expect(result).toMatchObject({
+        id: 'pay-1',
+        workOrderId: 'wo-1',
+        amount: '50.00',
+        paymentMethod: 'cash',
+        note: 'Adelanto',
+      });
+    });
+
+    it('defaults note to null when omitted', async () => {
+      await service.addPayment('wo-1', { amount: 50, paymentMethod: 'card' });
+
+      expect(prisma.workOrderPayment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ note: null }),
+      });
+    });
+
+    it('throws WORK_ORDER_NOT_FOUND when the order is missing or inactive', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const error = await service
+        .addPayment('wo-1', { amount: 50, paymentMethod: 'cash' })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect((error as NotFoundException).getResponse()).toMatchObject({
+        errorCode: 'WORK_ORDER_NOT_FOUND',
+      });
+      expect(prisma.workOrderPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects payments on a cancelled work order', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        status: 'cancelled',
+        payments: [],
+      });
+
+      const error = await service
+        .addPayment('wo-1', { amount: 50, paymentMethod: 'cash' })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        errorCode: 'WORK_ORDER_CANCELLED',
+      });
+      expect(prisma.workOrderPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects payments that exceed the remaining balance', async () => {
+      // totalAmount is 150.00; 100 already paid, 50.01 exceeds the rest.
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        payments: [{ ...paymentRecord, amount: new Prisma.Decimal('100.00') }],
+      });
+
+      const error = await service
+        .addPayment('wo-1', { amount: 50.01, paymentMethod: 'cash' })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        errorCode: 'WORK_ORDER_OVERPAYMENT',
+      });
+      expect(prisma.workOrderPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a payment that exactly covers the remaining balance', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        payments: [{ ...paymentRecord, amount: new Prisma.Decimal('100.00') }],
+      });
+
+      await service.addPayment('wo-1', { amount: 50, paymentMethod: 'cash' });
+
+      expect(prisma.workOrderPayment.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('listPayments', () => {
+    it('returns the payments of an order ordered by paidAt asc', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        payments: [],
+      });
+      const payments = [
+        {
+          id: 'pay-1',
+          workOrderId: 'wo-1',
+          amount: new Prisma.Decimal('50.00'),
+          paymentMethod: 'cash',
+          note: null,
+          paidAt: new Date('2026-01-02T10:00:00.000Z'),
+          createdAt: new Date('2026-01-02T10:00:00.000Z'),
+          updatedAt: new Date('2026-01-02T10:00:00.000Z'),
+        },
+      ];
+      (prisma.workOrderPayment.findMany as jest.Mock).mockResolvedValue(
+        payments
+      );
+
+      const result = await service.listPayments('wo-1');
+
+      expect(prisma.workOrderPayment.findMany).toHaveBeenCalledWith({
+        where: { workOrderId: 'wo-1' },
+        orderBy: { paidAt: 'asc' },
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({ id: 'pay-1', amount: '50.00' });
+    });
+
+    it('throws WORK_ORDER_NOT_FOUND when the order is not readable', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.listPayments('wo-1')).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'WORK_ORDER_NOT_FOUND',
+        }),
+      });
+      expect(prisma.workOrderPayment.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('payment status derivation', () => {
+    it('reports pending with zero paidAmount when there are no payments', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        services: [],
+        payments: [],
+      });
+
+      const result = await service.findOne('wo-1');
+
+      expect(result.paidAmount).toBe('0.00');
+      expect(result.paymentStatus).toBe('pending');
+    });
+
+    it('reports partial when payments do not cover the total', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        services: [],
+        payments: [
+          { amount: new Prisma.Decimal('50.00') },
+          { amount: new Prisma.Decimal('25.00') },
+        ],
+      });
+
+      const result = await service.findOne('wo-1');
+
+      // totalAmount is 150.00
+      expect(result.paidAmount).toBe('75.00');
+      expect(result.paymentStatus).toBe('partial');
+    });
+
+    it('reports paid when payments cover the total', async () => {
+      (prisma.workOrder.findUnique as jest.Mock).mockResolvedValue({
+        ...workOrderRecord,
+        services: [],
+        payments: [{ amount: new Prisma.Decimal('150.00') }],
+      });
+
+      const result = await service.findOne('wo-1');
+
+      expect(result.paidAmount).toBe('150.00');
+      expect(result.paymentStatus).toBe('paid');
     });
   });
 });

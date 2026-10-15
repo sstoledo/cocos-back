@@ -112,12 +112,31 @@ const matchesWorkOrder = (workOrder: Row, where: Row) => {
   return true;
 };
 
+const matchesPayment = (payment: Row, where: Row, workOrders: Array<Row>) => {
+  const paidAt = where.paidAt as Row | undefined;
+  const gte = paidAt?.gte as Date | undefined;
+  const lt = paidAt?.lt as Date | undefined;
+  if (gte && new Date(payment.paidAt as Date) < gte) return false;
+  if (lt && new Date(payment.paidAt as Date) >= lt) return false;
+  const workOrderFilter = where.workOrder as Row | undefined;
+  if (workOrderFilter?.isActive !== undefined) {
+    const workOrder = workOrders.find(
+      (entry) => entry.id === payment.workOrderId
+    );
+    if (!workOrder || workOrder.isActive !== workOrderFilter.isActive) {
+      return false;
+    }
+  }
+  return true;
+};
+
 describe('CashClosings (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let sales: Array<Row>;
   let workOrders: Array<Row>;
   let closings: Array<Row>;
+  let payments: Array<Row>;
   // Models the loser of the @@unique([periodStart]) race: a concurrent close
   // committed the same periodStart after this request read the last closing.
   let simulateConcurrentClose: boolean;
@@ -130,6 +149,7 @@ describe('CashClosings (e2e)', () => {
     sales = [];
     workOrders = [];
     closings = [];
+    payments = [];
     simulateConcurrentClose = false;
 
     const withClosedBy = (closing: Row) => {
@@ -197,6 +217,37 @@ describe('CashClosings (e2e)', () => {
                 new Date(b.updatedAt as Date).getTime()
             );
           return done[0] ?? null;
+        }),
+      },
+      workOrderPayment: {
+        findFirst: jest.fn(() => {
+          const sorted = [...payments].sort(
+            (a, b) =>
+              new Date(a.paidAt as Date).getTime() -
+              new Date(b.paidAt as Date).getTime()
+          );
+          return sorted[0] ?? null;
+        }),
+        groupBy: jest.fn(({ where }) => {
+          const buckets = new Map<string, Prisma.Decimal>();
+          for (const payment of payments) {
+            if (!matchesPayment(payment, where ?? {}, workOrders)) continue;
+            const method = payment.paymentMethod as string;
+            const previous = buckets.get(method) ?? new Prisma.Decimal(0);
+            buckets.set(
+              method,
+              previous.plus(payment.amount as Prisma.Decimal)
+            );
+          }
+          return [...buckets.entries()].map(([paymentMethod, sum]) => ({
+            paymentMethod,
+            _sum: { amount: sum },
+          }));
+        }),
+        count: jest.fn(({ where }) => {
+          return payments.filter((payment) =>
+            matchesPayment(payment, where ?? {}, workOrders)
+          ).length;
         }),
       },
       cashClosing: {
@@ -332,8 +383,32 @@ describe('CashClosings (e2e)', () => {
       declaredCash: new Prisma.Decimal('0.00'),
       difference: new Prisma.Decimal('0.00'),
       salesCount: 0,
+      workOrderPaymentsCash: new Prisma.Decimal('0.00'),
+      workOrderPaymentsCard: new Prisma.Decimal('0.00'),
+      workOrderPaymentsTransfer: new Prisma.Decimal('0.00'),
+      workOrderPaymentsCount: 0,
       notes: null,
       createdAt: periodEnd,
+      ...overrides,
+    });
+  };
+
+  const seedPayment = (
+    paymentMethod: PaymentMethod,
+    amount: string,
+    paidAt: Date,
+    overrides: Row = {}
+  ) => {
+    const workOrderId = (overrides.workOrderId as string) ?? 'work-order-1';
+    if (!workOrders.some((workOrder) => workOrder.id === workOrderId)) {
+      seedWorkOrder('in_progress', paidAt, { id: workOrderId });
+    }
+    payments.push({
+      id: `payment-${payments.length + 1}`,
+      workOrderId,
+      paymentMethod,
+      amount: new Prisma.Decimal(amount),
+      paidAt,
       ...overrides,
     });
   };
@@ -427,6 +502,10 @@ describe('CashClosings (e2e)', () => {
         declaredCash: '95.00',
         difference: '-5.00',
         salesCount: 3,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
         notes: 'Cierre del mediodía',
         createdAt: NOW.toISOString(),
         closedBy: { id: 'user-admin', name: 'Ana Admin' },
@@ -461,6 +540,62 @@ describe('CashClosings (e2e)', () => {
         status: 'completed',
         isActive: true,
       });
+    });
+
+    it('includes work order payments by paidAt, broken down per method', async () => {
+      seedSale(PaymentMethod.cash, '100.00', MORNING);
+      seedPayment(PaymentMethod.cash, '40.00', MORNING);
+      seedPayment(PaymentMethod.transfer, '60.00', MIDDAY);
+
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '140.00' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.expectedCash).toBe('140.00');
+      expect(response.body.expectedTransfer).toBe('60.00');
+      expect(response.body.salesCount).toBe(1);
+      expect(response.body.workOrderPaymentsCash).toBe('40.00');
+      expect(response.body.workOrderPaymentsCard).toBe('0.00');
+      expect(response.body.workOrderPaymentsTransfer).toBe('60.00');
+      expect(response.body.workOrderPaymentsCount).toBe(2);
+      expect(response.body.difference).toBe('0.00');
+    });
+
+    it('closes with no sales when the period only has work order payments', async () => {
+      seedPayment(PaymentMethod.cash, '80.00', MORNING);
+
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '80.00' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.expectedCash).toBe('80.00');
+      expect(response.body.salesCount).toBe(0);
+      expect(response.body.workOrderPaymentsCount).toBe(1);
+      // The first-ever closing anchors to the earliest payment.
+      expect(response.body.periodStart).toBe(MORNING.toISOString());
+    });
+
+    it('ignores work order payments of soft-deleted orders', async () => {
+      seedSale(PaymentMethod.cash, '100.00', MORNING);
+      seedPayment(PaymentMethod.cash, '40.00', MORNING);
+      seedPayment(PaymentMethod.cash, '999.00', MORNING, {
+        workOrderId: 'work-order-deleted',
+      });
+      const deleted = workOrders.find((wo) => wo.id === 'work-order-deleted');
+      if (deleted) {
+        deleted.isActive = false;
+      }
+
+      const response = await admin()
+        .post('/api/cash-closings')
+        .send({ declaredCash: '140.00' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.expectedCash).toBe('140.00');
+      expect(response.body.workOrderPaymentsCash).toBe('40.00');
+      expect(response.body.workOrderPaymentsCount).toBe(1);
     });
 
     it('chains periods: the next close starts at the last periodEnd', async () => {
@@ -588,6 +723,10 @@ describe('CashClosings (e2e)', () => {
         expectedCard: '0.00',
         expectedTransfer: '10.00',
         salesCount: 2,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
       });
       expect(closings).toHaveLength(0);
     });
@@ -602,6 +741,10 @@ describe('CashClosings (e2e)', () => {
         expectedCard: '0.00',
         expectedTransfer: '0.00',
         salesCount: 0,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
       });
       expect(closings).toHaveLength(0);
     });

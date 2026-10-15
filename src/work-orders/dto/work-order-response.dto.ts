@@ -126,6 +126,14 @@ export class WorkOrderResponseDto {
   totalAmount: string;
 
   @Expose()
+  @Type(() => String)
+  @Transform(({ value }) => Number(value).toFixed(2))
+  paidAmount: string;
+
+  @Expose()
+  paymentStatus: 'pending' | 'partial' | 'paid';
+
+  @Expose()
   isActive: boolean;
 
   @Expose()

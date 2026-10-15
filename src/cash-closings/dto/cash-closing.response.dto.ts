@@ -51,6 +51,24 @@ export class CashClosingResponseDto {
   salesCount: number;
 
   @Expose()
+  @Type(() => String)
+  @Transform(({ value }) => Number(value).toFixed(2))
+  workOrderPaymentsCash: string;
+
+  @Expose()
+  @Type(() => String)
+  @Transform(({ value }) => Number(value).toFixed(2))
+  workOrderPaymentsCard: string;
+
+  @Expose()
+  @Type(() => String)
+  @Transform(({ value }) => Number(value).toFixed(2))
+  workOrderPaymentsTransfer: string;
+
+  @Expose()
+  workOrderPaymentsCount: number;
+
+  @Expose()
   notes: string | null;
 
   @Expose()

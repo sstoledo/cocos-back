@@ -22,6 +22,10 @@ const CLOSING_RECORD = {
   declaredCash: new Prisma.Decimal('300.75'),
   difference: new Prisma.Decimal('50.25'),
   salesCount: 5,
+  workOrderPaymentsCash: new Prisma.Decimal('0'),
+  workOrderPaymentsCard: new Prisma.Decimal('0'),
+  workOrderPaymentsTransfer: new Prisma.Decimal('0'),
+  workOrderPaymentsCount: 0,
   notes: 'Cierre turno tarde',
   createdAt: NOW,
   closedBy: { id: 'user-1', name: 'Ada Admin' },
@@ -37,6 +41,10 @@ const CLOSING_RESPONSE = {
   declaredCash: '300.75',
   difference: '50.25',
   salesCount: 5,
+  workOrderPaymentsCash: '0.00',
+  workOrderPaymentsCard: '0.00',
+  workOrderPaymentsTransfer: '0.00',
+  workOrderPaymentsCount: 0,
   notes: 'Cierre turno tarde',
   createdAt: NOW,
   closedBy: { id: 'user-1', name: 'Ada Admin' },
@@ -73,8 +81,16 @@ describe('CashClosingsService', () => {
         count: jest.fn(),
         findFirst: jest.fn(),
       },
+      workOrderPayment: {
+        groupBy: jest.fn(),
+        count: jest.fn(),
+        findFirst: jest.fn(),
+      },
       $transaction: jest.fn(),
     } as unknown as PrismaService;
+    (prisma.workOrderPayment.groupBy as jest.Mock).mockResolvedValue([]);
+    (prisma.workOrderPayment.count as jest.Mock).mockResolvedValue(0);
+    (prisma.workOrderPayment.findFirst as jest.Mock).mockResolvedValue(null);
     (prisma.$transaction as jest.Mock).mockImplementation(
       (callback: (tx: unknown) => unknown) => callback(prisma)
     );
@@ -164,6 +180,10 @@ describe('CashClosingsService', () => {
         expectedCard: '0.00',
         expectedTransfer: '0.00',
         salesCount: 0,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
       });
     });
 
@@ -187,6 +207,10 @@ describe('CashClosingsService', () => {
         expectedCard: '0.00',
         expectedTransfer: '0.00',
         salesCount: 3,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
       });
     });
 
@@ -215,6 +239,53 @@ describe('CashClosingsService', () => {
       expect(result.expectedCash).toBe('100.10');
       expect(result.expectedCard).toBe('0.10');
       expect(result.expectedTransfer).toBe('0.20');
+    });
+
+    it('aggregates work order payments by paidAt, broken down per method', async () => {
+      (prisma.cashClosing.findFirst as jest.Mock).mockResolvedValue({
+        periodEnd: LAST_PERIOD_END,
+      });
+      (prisma.sale.groupBy as jest.Mock).mockResolvedValue([
+        {
+          paymentMethod: 'cash',
+          _sum: { totalAmount: new Prisma.Decimal('100.00') },
+        },
+      ]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(1);
+      (prisma.workOrderPayment.groupBy as jest.Mock).mockResolvedValue([
+        {
+          paymentMethod: 'cash',
+          _sum: { amount: new Prisma.Decimal('40.00') },
+        },
+        {
+          paymentMethod: 'transfer',
+          _sum: { amount: new Prisma.Decimal('60.00') },
+        },
+      ]);
+      (prisma.workOrderPayment.count as jest.Mock).mockResolvedValue(2);
+
+      const result = await service.preview('user-1');
+
+      const paymentWhere = {
+        paidAt: { gte: LAST_PERIOD_END, lt: NOW },
+        workOrder: { isActive: true },
+      };
+      expect(prisma.workOrderPayment.groupBy).toHaveBeenCalledWith({
+        by: ['paymentMethod'],
+        where: paymentWhere,
+        _sum: { amount: true },
+      });
+      expect(prisma.workOrderPayment.count).toHaveBeenCalledWith({
+        where: paymentWhere,
+      });
+      // expectedCash combines sale cash (100) + WO payment cash (40).
+      expect(result.expectedCash).toBe('140.00');
+      expect(result.expectedCard).toBe('0.00');
+      expect(result.expectedTransfer).toBe('60.00');
+      expect(result.workOrderPaymentsCash).toBe('40.00');
+      expect(result.workOrderPaymentsCard).toBe('0.00');
+      expect(result.workOrderPaymentsTransfer).toBe('60.00');
+      expect(result.workOrderPaymentsCount).toBe(2);
     });
 
     it('persists nothing', async () => {
@@ -297,6 +368,10 @@ describe('CashClosingsService', () => {
         declaredCash: '300.75',
         difference: '50.25',
         salesCount: 5,
+        workOrderPaymentsCash: '0.00',
+        workOrderPaymentsCard: '0.00',
+        workOrderPaymentsTransfer: '0.00',
+        workOrderPaymentsCount: 0,
         notes: 'Cierre turno tarde',
         createdAt: NOW,
         closedBy: { id: 'user-1', name: 'Ada Admin' },
@@ -435,6 +510,60 @@ describe('CashClosingsService', () => {
         },
         _sum: { totalAmount: true },
       });
+    });
+
+    it('persists the work order payment breakdown in the snapshot', async () => {
+      (prisma.workOrderPayment.groupBy as jest.Mock).mockResolvedValue([
+        {
+          paymentMethod: 'cash',
+          _sum: { amount: new Prisma.Decimal('75.25') },
+        },
+      ]);
+      (prisma.workOrderPayment.count as jest.Mock).mockResolvedValue(1);
+
+      await service.close('user-1', dto);
+
+      const createData = (prisma.cashClosing.create as jest.Mock).mock
+        .calls[0][0].data;
+      // 250.50 sale cash + 75.25 WO payment cash.
+      expect(createData.expectedCash.toFixed(2)).toBe('325.75');
+      expect(createData.workOrderPaymentsCash.toFixed(2)).toBe('75.25');
+      expect(createData.workOrderPaymentsCard.toFixed(2)).toBe('0.00');
+      expect(createData.workOrderPaymentsTransfer.toFixed(2)).toBe('0.00');
+      expect(createData.workOrderPaymentsCount).toBe(1);
+    });
+
+    it('closes with no sales when work order payments exist in the period', async () => {
+      const paymentAt = new Date('2026-01-04T09:00:00.000Z');
+      (prisma.cashClosing.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.sale.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.sale.groupBy as jest.Mock).mockResolvedValue([]);
+      (prisma.sale.count as jest.Mock).mockResolvedValue(0);
+      (prisma.workOrder.count as jest.Mock).mockResolvedValue(0);
+      (prisma.workOrder.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.workOrderPayment.findFirst as jest.Mock).mockResolvedValue({
+        paidAt: paymentAt,
+      });
+      (prisma.workOrderPayment.groupBy as jest.Mock).mockResolvedValue([
+        {
+          paymentMethod: 'cash',
+          _sum: { amount: new Prisma.Decimal('80.00') },
+        },
+      ]);
+      (prisma.workOrderPayment.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.close('user-1', { declaredCash: '80' });
+
+      // Payments are activity: CLOSING_NO_ACTIVITY must not fire.
+      expect(prisma.cashClosing.create).toHaveBeenCalledTimes(1);
+      expect(result.expectedCash).toBe('80.00');
+      expect(result.workOrderPaymentsCount).toBe(1);
+      // First-ever closing anchors to the earliest payment.
+      expect(prisma.cashClosing.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ periodStart: paymentAt }),
+        })
+      );
     });
 
     it('maps a concurrent close (P2002 on periodStart) to CLOSING_CONFLICT', async () => {
