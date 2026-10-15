@@ -134,7 +134,6 @@ model Product {
   category          Category           @relation(fields: [categoryId], references: [id])
   lotItems          LotItem[]
   stockMovements    StockMovement[]
-  workOrderProducts WorkOrderProduct[]
   saleProducts      SaleProduct[]
   purchaseOrderLines PurchaseOrderLine[]
   createdAt         DateTime           @default(now()) @map("created_at")
@@ -321,7 +320,6 @@ model WorkOrder {
   isActive       Boolean            @default(true) @map("is_active")
   deletedAt      DateTime?          @map("deleted_at")
   services       WorkOrderService[]
-  products       WorkOrderProduct[]
   stockMovements StockMovement[]
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
@@ -349,22 +347,6 @@ model WorkOrderService {
 
   @@unique([workOrderId, serviceId])
   @@map("work_order_services")
-}
-
-model WorkOrderProduct {
-  id                String    @id @default(cuid())
-  workOrderId       String    @map("work_order_id")
-  workOrder         WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  productId         String    @map("product_id")
-  product           Product   @relation(fields: [productId], references: [id])
-  quantity          Int       @default(1)
-  unitPriceSnapshot Decimal   @map("unit_price_snapshot") @db.Decimal(10, 2)
-  subtotal          Decimal   @db.Decimal(10, 2)
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  @@unique([workOrderId, productId])
-  @@map("work_order_products")
 }
 
 model Employee {

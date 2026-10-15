@@ -59,61 +59,6 @@ export class WorkOrderServiceResponseDto {
 }
 
 @Exclude()
-export class WorkOrderProductItemResponseDto {
-  @Expose()
-  id: string;
-
-  @Expose()
-  code: string;
-
-  @Expose()
-  name: string;
-
-  @Expose()
-  description?: string | null;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  price: string;
-}
-
-@Exclude()
-export class WorkOrderProductResponseDto {
-  @Expose()
-  id: string;
-
-  @Expose()
-  productId: string;
-
-  @Expose()
-  @Type(() => Number)
-  quantity: number;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  unitPriceSnapshot: string;
-
-  @Expose()
-  @Type(() => String)
-  @Transform(({ value }) => Number(value).toFixed(2))
-  subtotal: string;
-
-  @Expose()
-  @Type(() => WorkOrderProductItemResponseDto)
-  product: WorkOrderProductItemResponseDto;
-
-  @Expose()
-  @Type(() => Date)
-  createdAt: Date;
-
-  @Expose()
-  @Type(() => Date)
-  updatedAt: Date;
-}
-
-@Exclude()
 export class EmployeeSummaryDto {
   @Expose()
   id: string;
@@ -202,10 +147,6 @@ export class WorkOrderResponseDto {
   @Expose()
   @Type(() => WorkOrderServiceResponseDto)
   services: WorkOrderServiceResponseDto[];
-
-  @Expose()
-  @Type(() => WorkOrderProductResponseDto)
-  products: WorkOrderProductResponseDto[];
 
   @Expose()
   @Type(() => Date)

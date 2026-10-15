@@ -35,7 +35,6 @@ const WORK_ORDER_INCLUDE = {
   client: true,
   vehicle: true,
   services: { include: { service: true } },
-  products: { include: { product: true } },
   ...ASSIGNMENT_INCLUDE,
 } as const;
 
@@ -50,11 +49,10 @@ export class WorkOrdersService {
 
   async create(dto: CreateWorkOrderDto) {
     const serviceLines = dto.services ?? [];
-    const productLines = dto.products ?? [];
 
-    if (serviceLines.length === 0 && productLines.length === 0) {
+    if (serviceLines.length === 0) {
       throw new BadRequestException({
-        message: 'Work order must include at least one service or product line',
+        message: 'Work order must include at least one service line',
         errorCode: 'WORK_ORDER_EMPTY_LINES',
       });
     }
@@ -68,9 +66,8 @@ export class WorkOrdersService {
     }
 
     const serviceLineItems = await this.buildServiceLineItems(serviceLines);
-    const productLineItems = await this.resolveProducts(productLines);
 
-    const totalAmount = this.computeTotal(serviceLineItems, productLineItems);
+    const totalAmount = this.computeTotal(serviceLineItems);
 
     const orderNumber = await this.generateOrderNumber();
 
@@ -87,14 +84,6 @@ export class WorkOrdersService {
         services: {
           create: serviceLineItems.map((item) => ({
             serviceId: item.serviceId,
-            quantity: item.quantity,
-            unitPriceSnapshot: item.unitPriceSnapshot,
-            subtotal: item.subtotal,
-          })),
-        },
-        products: {
-          create: productLineItems.map((item) => ({
-            productId: item.productId,
             quantity: item.quantity,
             unitPriceSnapshot: item.unitPriceSnapshot,
             subtotal: item.subtotal,
@@ -212,7 +201,7 @@ export class WorkOrdersService {
 
     const linesInclude = WORK_ORDER_INCLUDE;
 
-    if (dto.services === undefined && dto.products === undefined) {
+    if (dto.services === undefined) {
       const updated = await this.prisma.workOrder.update({
         where: { id },
         data: scalarData,
@@ -222,59 +211,24 @@ export class WorkOrdersService {
       return this.toResponse(updated);
     }
 
-    const serviceLineItems =
-      dto.services !== undefined
-        ? await this.buildServiceLineItems(dto.services)
-        : null;
-    const productLineItems =
-      dto.products !== undefined
-        ? await this.resolveProducts(dto.products)
-        : null;
+    const serviceLineItems = await this.buildServiceLineItems(dto.services);
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (serviceLineItems) {
-        await tx.workOrderService.deleteMany({
-          where: { workOrderId: id },
-        });
+      await tx.workOrderService.deleteMany({
+        where: { workOrderId: id },
+      });
 
-        await tx.workOrderService.createMany({
-          data: serviceLineItems.map((item) => ({
-            workOrderId: id,
-            serviceId: item.serviceId,
-            quantity: item.quantity,
-            unitPriceSnapshot: item.unitPriceSnapshot,
-            subtotal: item.subtotal,
-          })),
-        });
-      }
+      await tx.workOrderService.createMany({
+        data: serviceLineItems.map((item) => ({
+          workOrderId: id,
+          serviceId: item.serviceId,
+          quantity: item.quantity,
+          unitPriceSnapshot: item.unitPriceSnapshot,
+          subtotal: item.subtotal,
+        })),
+      });
 
-      if (productLineItems) {
-        await tx.workOrderProduct.deleteMany({
-          where: { workOrderId: id },
-        });
-
-        await tx.workOrderProduct.createMany({
-          data: productLineItems.map((item) => ({
-            workOrderId: id,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPriceSnapshot: item.unitPriceSnapshot,
-            subtotal: item.subtotal,
-          })),
-        });
-      }
-
-      const serviceLinesForTotal =
-        serviceLineItems ??
-        (await tx.workOrderService.findMany({ where: { workOrderId: id } }));
-      const productLinesForTotal =
-        productLineItems ??
-        (await tx.workOrderProduct.findMany({ where: { workOrderId: id } }));
-
-      const totalAmount = this.computeTotal(
-        serviceLinesForTotal,
-        productLinesForTotal
-      );
+      const totalAmount = this.computeTotal(serviceLineItems);
 
       return tx.workOrder.update({
         where: { id },
@@ -308,7 +262,6 @@ export class WorkOrdersService {
             employeeId: mechanicEmployeeId,
           }),
         },
-        include: { products: true },
       });
 
       if (!order) {
@@ -320,10 +273,6 @@ export class WorkOrdersService {
           message: `Cannot transition work order from '${order.status}' to '${to}'`,
           errorCode: 'INVALID_STATUS_TRANSITION',
         });
-      }
-
-      if (to === WorkOrderStatus.done && order.products.length > 0) {
-        await this.consumeStockForOrder(tx, order);
       }
 
       const guard = await tx.workOrder.updateMany({
@@ -392,93 +341,6 @@ export class WorkOrdersService {
       return `Cliente: ${workOrder.client.name} — Vehículo: ${brand} ${model} (${plate})`;
     }
     return 'La orden de trabajo está lista para entrega';
-  }
-
-  private async consumeStockForOrder(
-    tx: Prisma.TransactionClient,
-    order: {
-      id: string;
-      orderNumber: string;
-      products: Array<{ productId: string; quantity: number }>;
-    }
-  ): Promise<void> {
-    const shortages: Array<{
-      productId: string;
-      requested: number;
-      available: number;
-    }> = [];
-
-    for (const line of order.products) {
-      const aggregate = await tx.lotItem.aggregate({
-        _sum: { remainingQuantity: true },
-        where: { productId: line.productId, remainingQuantity: { gt: 0 } },
-      });
-      const available = aggregate._sum.remainingQuantity ?? 0;
-
-      if (available < line.quantity) {
-        shortages.push({
-          productId: line.productId,
-          requested: line.quantity,
-          available,
-        });
-      }
-    }
-
-    if (shortages.length > 0) {
-      throw new ConflictException({
-        message: 'Insufficient stock to complete the work order',
-        errorCode: 'INSUFFICIENT_STOCK',
-        details: shortages,
-      });
-    }
-
-    for (const line of order.products) {
-      const lots = await tx.lotItem.findMany({
-        where: { productId: line.productId, remainingQuantity: { gt: 0 } },
-        orderBy: { lot: { receivedAt: 'asc' } },
-      });
-
-      let needed = line.quantity;
-
-      for (const lot of lots) {
-        if (needed === 0) {
-          break;
-        }
-
-        const allocation = Math.min(lot.remainingQuantity, needed);
-        const lotGuard = await tx.lotItem.updateMany({
-          where: { id: lot.id, remainingQuantity: { gte: allocation } },
-          data: { remainingQuantity: { decrement: allocation } },
-        });
-
-        if (lotGuard.count === 0) {
-          throw new ConflictException({
-            message: 'Insufficient stock to complete the work order',
-            errorCode: 'INSUFFICIENT_STOCK',
-            details: [
-              {
-                productId: line.productId,
-                requested: line.quantity,
-                available: line.quantity - needed,
-              },
-            ],
-          });
-        }
-
-        await tx.stockMovement.create({
-          data: {
-            productId: line.productId,
-            lotItemId: lot.id,
-            workOrderId: order.id,
-            type: 'service_usage',
-            quantity: -allocation,
-            reason: `Work order ${order.orderNumber} completion`,
-          },
-        });
-
-        needed -= allocation;
-      }
-    }
   }
 
   private async ensureClientExists(clientId: string): Promise<void> {
@@ -585,49 +447,10 @@ export class WorkOrdersService {
     return lineItems;
   }
 
-  private async resolveProducts(
-    products: NonNullable<CreateWorkOrderDto['products']>
-  ): Promise<
-    Array<{
-      productId: string;
-      quantity: number;
-      unitPriceSnapshot: Prisma.Decimal;
-      subtotal: Prisma.Decimal;
-    }>
-  > {
-    const lineItems = [];
-
-    for (const line of products) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: line.productId, isActive: true },
-      });
-
-      if (!product) {
-        throw new NotFoundException({
-          message: 'Product not found or inactive',
-          errorCode: 'PRODUCT_NOT_FOUND',
-        });
-      }
-
-      const unitPriceSnapshot = line.unitPrice ?? Number(product.price);
-      const subtotal = unitPriceSnapshot * line.quantity;
-
-      lineItems.push({
-        productId: line.productId,
-        quantity: line.quantity,
-        unitPriceSnapshot: new Prisma.Decimal(unitPriceSnapshot),
-        subtotal: new Prisma.Decimal(subtotal),
-      });
-    }
-
-    return lineItems;
-  }
-
   private computeTotal(
-    serviceLines: Array<{ subtotal: Prisma.Decimal }>,
-    productLines: Array<{ subtotal: Prisma.Decimal }>
+    serviceLines: Array<{ subtotal: Prisma.Decimal }>
   ): Prisma.Decimal {
-    const sum = [...serviceLines, ...productLines].reduce(
+    const sum = serviceLines.reduce(
       (total, line) => total + Number(line.subtotal),
       0
     );
@@ -691,22 +514,6 @@ export class WorkOrdersService {
         estimatedDuration: number | null;
       };
     }>;
-    products?: Array<{
-      id: string;
-      productId: string;
-      quantity: number;
-      unitPriceSnapshot: Prisma.Decimal;
-      subtotal: Prisma.Decimal;
-      createdAt: Date;
-      updatedAt: Date;
-      product: {
-        id: string;
-        code: string;
-        name: string;
-        description: string | null;
-        price: Prisma.Decimal;
-      };
-    }>;
   }): WorkOrderResponseDto {
     const services = workOrder.services?.map((s) => ({
       id: s.id,
@@ -723,23 +530,6 @@ export class WorkOrdersService {
         description: s.service.description,
         price: Number(s.service.price).toFixed(2),
         estimatedDuration: s.service.estimatedDuration,
-      },
-    }));
-
-    const products = workOrder.products?.map((p) => ({
-      id: p.id,
-      productId: p.productId,
-      quantity: p.quantity,
-      unitPriceSnapshot: Number(p.unitPriceSnapshot).toFixed(2),
-      subtotal: Number(p.subtotal).toFixed(2),
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-      product: {
-        id: p.product.id,
-        code: p.product.code,
-        name: p.product.name,
-        description: p.product.description,
-        price: Number(p.product.price).toFixed(2),
       },
     }));
 
@@ -766,7 +556,6 @@ export class WorkOrdersService {
             }
           : undefined,
         services: services ?? [],
-        products: products ?? [],
       },
       { excludeExtraneousValues: true }
     );
