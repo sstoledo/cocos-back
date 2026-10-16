@@ -11,6 +11,8 @@ import { ClientsService } from '../clients/clients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
+import { ConsumptionEventResponseDto } from './dto/consumption-event-response.dto';
+import type { CreateConsumptionEventDto } from './dto/create-consumption-event.dto';
 import type { CreateWorkOrderPaymentDto } from './dto/create-work-order-payment.dto';
 import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import type { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
@@ -387,6 +389,249 @@ export class WorkOrdersService {
     });
 
     return payments.map((payment) => this.toPaymentResponse(payment));
+  }
+
+  /**
+   * Registers a consumption event in the append-only log. Stock deducted by
+   * `used`/`depleted` events is NOT restored if the work order is cancelled
+   * afterwards — accepted MVP limitation, corrections happen via manual
+   * stock adjustments.
+   */
+  async addConsumptionEvent(
+    id: string,
+    dto: CreateConsumptionEventDto,
+    user?: User & { role: Role }
+  ) {
+    let mechanicEmployeeId: string | null = null;
+    if (user?.role.name === RoleName.Mechanic) {
+      mechanicEmployeeId = await this.findMechanicEmployeeId(user.id);
+      if (!mechanicEmployeeId) {
+        throw this.workOrderNotFound();
+      }
+    }
+
+    const event = await this.prisma.$transaction(async (tx) => {
+      const workOrder = await tx.workOrder.findUnique({
+        where: {
+          id,
+          isActive: true,
+          ...(mechanicEmployeeId !== null && {
+            employeeId: mechanicEmployeeId,
+          }),
+        },
+      });
+
+      if (!workOrder) {
+        throw this.workOrderNotFound();
+      }
+
+      if (
+        workOrder.status !== WorkOrderStatus.pending &&
+        workOrder.status !== WorkOrderStatus.in_progress
+      ) {
+        throw new ConflictException({
+          message: 'Cannot register consumption on a closed work order',
+          errorCode: 'WORK_ORDER_CLOSED',
+        });
+      }
+
+      const product = await tx.product.findUnique({
+        where: { id: dto.productId, isActive: true },
+      });
+
+      if (!product) {
+        throw new NotFoundException({
+          message: 'Product not found or inactive',
+          errorCode: 'PRODUCT_NOT_FOUND',
+        });
+      }
+
+      if (product.consumptionType === 'direct' && dto.type !== 'used') {
+        throw new BadRequestException({
+          message: `Event type '${dto.type}' is not allowed for direct-consumption products`,
+          errorCode: 'CONSUMPTION_TYPE_NOT_ALLOWED',
+        });
+      }
+
+      if (dto.type === 'used') {
+        if (!dto.quantity || dto.quantity <= 0) {
+          throw new BadRequestException({
+            message: "A positive quantity is required for 'used' events",
+            errorCode: 'CONSUMPTION_QUANTITY_REQUIRED',
+          });
+        }
+        await this.consumeStockForConsumption(
+          tx,
+          product.id,
+          dto.quantity,
+          workOrder,
+          `WO ${workOrder.orderNumber} consumption (used)`
+        );
+      }
+
+      if (dto.type === 'depleted') {
+        // Containers have no individual identity: the open-container balance
+        // is global per product (opened events minus depleted events).
+        const [openedCount, depletedCount] = await Promise.all([
+          tx.workOrderConsumptionEvent.count({
+            where: { productId: product.id, type: 'opened' },
+          }),
+          tx.workOrderConsumptionEvent.count({
+            where: { productId: product.id, type: 'depleted' },
+          }),
+        ]);
+
+        if (openedCount - depletedCount <= 0) {
+          throw new ConflictException({
+            message: 'No open container exists for this product',
+            errorCode: 'NO_OPEN_CONTAINER',
+          });
+        }
+
+        await this.consumeStockForConsumption(
+          tx,
+          product.id,
+          1,
+          workOrder,
+          `WO ${workOrder.orderNumber} container depleted`
+        );
+      }
+
+      return tx.workOrderConsumptionEvent.create({
+        data: {
+          workOrderId: id,
+          productId: product.id,
+          type: dto.type,
+          quantity: dto.type === 'used' ? dto.quantity : null,
+          registeredById: user?.id ?? '',
+        },
+        include: { product: true, registeredBy: true },
+      });
+    });
+
+    return this.toConsumptionResponse(event);
+  }
+
+  async listConsumptionEvents(id: string, user?: User & { role: Role }) {
+    // Reuses the WO read scope (including the mechanic assignment filter)
+    // so the log can never leak an order the user cannot see.
+    await this.findOne(id, user);
+
+    const events = await this.prisma.workOrderConsumptionEvent.findMany({
+      where: { workOrderId: id },
+      orderBy: { createdAt: 'asc' },
+      include: { product: true, registeredBy: true },
+    });
+
+    return events.map((event) => this.toConsumptionResponse(event));
+  }
+
+  /**
+   * Guarded FIFO stock deduction — mirrors the allocation logic in
+   * SalesService.create (keep in sync; extracting a shared StockService is
+   * a deferred follow-up).
+   */
+  private async consumeStockForConsumption(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    quantity: number,
+    workOrder: { id: string; orderNumber: string },
+    reason: string
+  ): Promise<void> {
+    const aggregate = await tx.lotItem.aggregate({
+      _sum: { remainingQuantity: true },
+      where: { productId, remainingQuantity: { gt: 0 } },
+    });
+    const available = aggregate._sum.remainingQuantity ?? 0;
+
+    if (available < quantity) {
+      throw new ConflictException({
+        message: 'Insufficient stock to register the consumption',
+        errorCode: 'INSUFFICIENT_STOCK',
+        details: [{ productId, requested: quantity, available }],
+      });
+    }
+
+    const lots = await tx.lotItem.findMany({
+      where: { productId, remainingQuantity: { gt: 0 } },
+      orderBy: { lot: { receivedAt: 'asc' } },
+    });
+
+    let needed = quantity;
+
+    for (const lot of lots) {
+      if (needed === 0) {
+        break;
+      }
+
+      const allocation = Math.min(lot.remainingQuantity, needed);
+      const lotGuard = await tx.lotItem.updateMany({
+        where: { id: lot.id, remainingQuantity: { gte: allocation } },
+        data: { remainingQuantity: { decrement: allocation } },
+      });
+
+      if (lotGuard.count === 0) {
+        throw new ConflictException({
+          message: 'Insufficient stock to register the consumption',
+          errorCode: 'INSUFFICIENT_STOCK',
+          details: [
+            {
+              productId,
+              requested: quantity,
+              available: quantity - needed,
+            },
+          ],
+        });
+      }
+
+      await tx.stockMovement.create({
+        data: {
+          productId,
+          lotItemId: lot.id,
+          workOrderId: workOrder.id,
+          type: 'service_usage',
+          quantity: -allocation,
+          reason,
+        },
+      });
+
+      needed -= allocation;
+    }
+  }
+
+  private toConsumptionResponse(event: {
+    id: string;
+    workOrderId: string;
+    productId: string;
+    type: string;
+    quantity: number | null;
+    registeredById: string;
+    createdAt: Date;
+    product: {
+      id: string;
+      code: string;
+      name: string;
+      consumptionType: string;
+    };
+    registeredBy: { id: string; name: string };
+  }): ConsumptionEventResponseDto {
+    return plainToInstance(
+      ConsumptionEventResponseDto,
+      {
+        ...event,
+        product: {
+          id: event.product.id,
+          code: event.product.code,
+          name: event.product.name,
+          consumptionType: event.product.consumptionType,
+        },
+        registeredBy: {
+          id: event.registeredBy.id,
+          name: event.registeredBy.name,
+        },
+      },
+      { excludeExtraneousValues: true }
+    );
   }
 
   async remove(id: string) {

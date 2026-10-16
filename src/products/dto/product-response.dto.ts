@@ -72,6 +72,9 @@ export class ProductResponseDto {
   isActive: boolean;
 
   @Expose()
+  consumptionType: 'direct' | 'partial';
+
+  @Expose()
   @Type(() => Date)
   createdAt: Date;
 

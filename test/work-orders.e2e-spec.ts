@@ -34,6 +34,14 @@ const unlinkedMechanicUser = {
   id: 'user-mechanic-solo',
   role: { name: RoleName.Mechanic },
 };
+const warehouseUser = {
+  id: 'user-warehouse',
+  role: { name: RoleName.Warehouse },
+};
+
+const PRODUCT_DIRECT_ID = 'clproductdirect000000001';
+const PRODUCT_PARTIAL_ID = 'clproductpartial00000001';
+const PRODUCT_INACTIVE_ID = 'clproductinactive00000001';
 
 const CLIENT_ID = 'clclient00000000000000001';
 const CLIENT_2_ID = 'clclient00000000000000002';
@@ -133,7 +141,47 @@ describe('Work Orders (e2e)', () => {
     const workOrders: Array<Record<string, unknown>> = [];
     const workOrderServices: Array<Record<string, unknown>> = [];
     const workOrderPayments: Array<Record<string, unknown>> = [];
+    const consumptionEvents: Array<Record<string, unknown>> = [];
+    const stockMovements: Array<Record<string, unknown>> = [];
     const sequences: Array<Record<string, unknown>> = [];
+    const products: Array<Record<string, unknown>> = [
+      {
+        id: PRODUCT_DIRECT_ID,
+        code: 'FLT-001',
+        name: 'Oil filter',
+        consumptionType: 'direct',
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: PRODUCT_PARTIAL_ID,
+        code: 'OIL-5W30',
+        name: 'Engine oil 5W-30',
+        consumptionType: 'partial',
+        isActive: true,
+        deletedAt: null,
+      },
+      {
+        id: PRODUCT_INACTIVE_ID,
+        code: 'OLD-001',
+        name: 'Discontinued product',
+        consumptionType: 'direct',
+        isActive: false,
+        deletedAt: new Date(),
+      },
+    ];
+    const lotItems: Array<Record<string, unknown>> = [
+      {
+        id: 'cllotitem0000000000000001',
+        productId: PRODUCT_DIRECT_ID,
+        remainingQuantity: 10,
+      },
+      {
+        id: 'cllotitem0000000000000002',
+        productId: PRODUCT_PARTIAL_ID,
+        remainingQuantity: 4,
+      },
+    ];
     const employees: Array<Record<string, unknown>> = [
       {
         id: EMPLOYEE_ID,
@@ -425,6 +473,115 @@ describe('Work Orders (e2e)', () => {
         }),
         findMany: jest.fn(({ where }) => paymentsFor(where.workOrderId)),
       },
+      product: {
+        findUnique: jest.fn(({ where }) => {
+          const found = products.find(
+            (product) =>
+              product.id === where.id &&
+              (where.isActive === undefined ||
+                product.isActive === where.isActive)
+          );
+          return found ?? null;
+        }),
+      },
+      lotItem: {
+        aggregate: jest.fn(({ _sum, where }) => {
+          const total = lotItems
+            .filter(
+              (item) =>
+                item.productId === where.productId &&
+                (where.remainingQuantity === undefined ||
+                  (item.remainingQuantity as number) > 0)
+            )
+            .reduce((sum, item) => sum + (item.remainingQuantity as number), 0);
+          return { _sum: { remainingQuantity: total } };
+        }),
+        findMany: jest.fn(({ where }) =>
+          lotItems
+            .filter(
+              (item) =>
+                item.productId === where.productId &&
+                (item.remainingQuantity as number) > 0
+            )
+            .map((item) => ({
+              ...item,
+              lot: { receivedAt: new Date('2026-01-01T00:00:00.000Z') },
+            }))
+        ),
+        updateMany: jest.fn(({ where, data }) => {
+          const item = lotItems.find(
+            (candidate) =>
+              candidate.id === where.id &&
+              (candidate.remainingQuantity as number) >=
+                where.remainingQuantity.gte
+          );
+          if (!item) return { count: 0 };
+          item.remainingQuantity =
+            (item.remainingQuantity as number) -
+            data.remainingQuantity.decrement;
+          return { count: 1 };
+        }),
+      },
+      stockMovement: {
+        create: jest.fn(({ data }) => {
+          const movement = { id: `sm-${stockMovements.length + 1}`, ...data };
+          stockMovements.push(movement);
+          return movement;
+        }),
+      },
+      workOrderConsumptionEvent: {
+        create: jest.fn(({ data }) => {
+          const event = {
+            id: `evt-${consumptionEvents.length + 1}`,
+            ...data,
+            createdAt: new Date(),
+          };
+          consumptionEvents.push(event);
+          return {
+            ...event,
+            product: products.find((product) => product.id === data.productId),
+            registeredBy: { id: data.registeredById, name: 'Test User' },
+          };
+        }),
+        findMany: jest.fn(({ where }) =>
+          consumptionEvents
+            .filter((event) => event.workOrderId === where.workOrderId)
+            .map((event) => ({
+              ...event,
+              product: products.find(
+                (product) => product.id === event.productId
+              ),
+              registeredBy: {
+                id: event.registeredById,
+                name: 'Test User',
+              },
+            }))
+        ),
+        count: jest.fn(
+          ({ where }) =>
+            consumptionEvents.filter(
+              (event) =>
+                event.productId === where.productId && event.type === where.type
+            ).length
+        ),
+        findFirst: jest.fn(({ where }) => {
+          const found = consumptionEvents
+            .filter(
+              (event) =>
+                event.productId === where.productId && event.type === where.type
+            )
+            .at(-1);
+          if (!found) return null;
+          return {
+            ...found,
+            workOrder: workOrders.find((wo) => wo.id === found.workOrderId),
+            registeredBy: {
+              id: found.registeredById,
+              name: 'Test User',
+            },
+          };
+        }),
+      },
       $transaction: jest.fn((callback) => callback(prisma)),
       workOrderNumberSequence: {
         upsert: jest.fn(({ where, create, update }) => {
@@ -444,6 +601,7 @@ describe('Work Orders (e2e)', () => {
           if (where.id === adminUser.id) return adminUser;
           if (where.id === receptionUser.id) return receptionUser;
           if (where.id === mechanicUser.id) return mechanicUser;
+          if (where.id === warehouseUser.id) return warehouseUser;
           if (where.id === unlinkedMechanicUser.id) return unlinkedMechanicUser;
           return null;
         }),
@@ -468,6 +626,8 @@ describe('Work Orders (e2e)', () => {
           return { user: { id: adminUser.id } };
         if (cookie.includes('session=reception'))
           return { user: { id: receptionUser.id } };
+        if (cookie.includes('session=warehouse'))
+          return { user: { id: warehouseUser.id } };
         if (cookie.includes('session=mechanic-solo'))
           return { user: { id: unlinkedMechanicUser.id } };
         if (cookie.includes('session=mechanic'))
@@ -505,6 +665,8 @@ describe('Work Orders (e2e)', () => {
     request.agent(app.getHttpServer()).set('Cookie', 'session=reception');
   const mechanic = () =>
     request.agent(app.getHttpServer()).set('Cookie', 'session=mechanic');
+  const warehouse = () =>
+    request.agent(app.getHttpServer()).set('Cookie', 'session=warehouse');
   const unlinkedMechanic = () =>
     request.agent(app.getHttpServer()).set('Cookie', 'session=mechanic-solo');
   const anonymous = () => request.agent(app.getHttpServer());
@@ -1638,6 +1800,199 @@ describe('Work Orders (e2e)', () => {
         '/api/work-orders/wo-1/payments'
       );
       expect(unauthenticated.status).toBe(401);
+    });
+  });
+
+  describe('consumption events', () => {
+    it('registers a used event for a direct product and deducts stock', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 2 });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toMatchObject({
+        workOrderId: 'wo-1',
+        productId: PRODUCT_DIRECT_ID,
+        type: 'used',
+        quantity: 2,
+        registeredById: adminUser.id,
+        product: { code: 'FLT-001', consumptionType: 'direct' },
+      });
+
+      const stock = await admin().get(
+        `/api/stock/products/${PRODUCT_DIRECT_ID}`
+      );
+      expect(stock.body.stock).toBe(8);
+    });
+
+    it('lists the consumption log of a work order', async () => {
+      await createWorkOrder(admin());
+      await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_PARTIAL_ID, type: 'opened' });
+      await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+
+      const response = await reception().get(
+        '/api/work-orders/wo-1/consumptions'
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(2);
+      expect(response.body[0]).toMatchObject({
+        type: 'opened',
+        quantity: null,
+      });
+      expect(response.body[1]).toMatchObject({ type: 'used', quantity: 1 });
+    });
+
+    it('rejects opened events for direct products with 400', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'opened' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.errorCode).toBe('CONSUMPTION_TYPE_NOT_ALLOWED');
+    });
+
+    it('requires quantity for used events', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.errorCode).toBe('CONSUMPTION_QUANTITY_REQUIRED');
+    });
+
+    it('rejects used events with insufficient stock', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 99 });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('INSUFFICIENT_STOCK');
+    });
+
+    it('rejects depleted events without an open container', async () => {
+      await createWorkOrder(admin());
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_PARTIAL_ID, type: 'depleted' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('NO_OPEN_CONTAINER');
+    });
+
+    it('registers a depleted event when a container is open and deducts one unit', async () => {
+      await createWorkOrder(admin());
+      await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_PARTIAL_ID, type: 'opened' });
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_PARTIAL_ID, type: 'depleted' });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toMatchObject({ type: 'depleted', quantity: null });
+
+      const stock = await admin().get(
+        `/api/stock/products/${PRODUCT_PARTIAL_ID}`
+      );
+      expect(stock.body.stock).toBe(3);
+
+      const openContainers = await admin().get(
+        `/api/stock/products/${PRODUCT_PARTIAL_ID}/open-containers`
+      );
+      expect(openContainers.body).toMatchObject({
+        productId: PRODUCT_PARTIAL_ID,
+        openContainers: 0,
+        lastOpened: {
+          workOrderId: 'wo-1',
+          workOrderNumber: 'OC-2026-000001',
+        },
+      });
+    });
+
+    it('rejects events on done or cancelled orders with 409', async () => {
+      await createWorkOrder(admin());
+      await admin()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'in_progress' });
+      await admin()
+        .patch('/api/work-orders/wo-1/status')
+        .send({ status: 'done' });
+
+      const response = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+
+      expect(response.status).toBe(409);
+      expect(response.body.errorCode).toBe('WORK_ORDER_CLOSED');
+    });
+
+    it('returns 404 for an unknown or inactive product', async () => {
+      await createWorkOrder(admin());
+
+      const unknown = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: MISSING_ID, type: 'used', quantity: 1 });
+      expect(unknown.status).toBe(404);
+      expect(unknown.body.errorCode).toBe('PRODUCT_NOT_FOUND');
+
+      const inactive = await admin()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_INACTIVE_ID, type: 'used', quantity: 1 });
+      expect(inactive.status).toBe(404);
+    });
+
+    it('lets the assigned mechanic register events and blocks unassigned ones', async () => {
+      await createAssignedToMechanic();
+
+      const own = await mechanic()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+      expect(own.status).toBe(201);
+
+      await createWorkOrder(admin());
+      const other = await mechanic()
+        .post('/api/work-orders/wo-2/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+      expect(other.status).toBe(404);
+
+      const unlinked = await unlinkedMechanic()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+      expect(unlinked.status).toBe(404);
+    });
+
+    it('lets warehouse register events and rejects read-only users', async () => {
+      await createWorkOrder(admin());
+
+      const allowed = await warehouse()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_PARTIAL_ID, type: 'opened' });
+      expect(allowed.status).toBe(201);
+    });
+
+    it('requires authentication for consumption endpoints', async () => {
+      const post = await anonymous()
+        .post('/api/work-orders/wo-1/consumptions')
+        .send({ productId: PRODUCT_DIRECT_ID, type: 'used', quantity: 1 });
+      expect(post.status).toBe(401);
+
+      const get = await anonymous().get('/api/work-orders/wo-1/consumptions');
+      expect(get.status).toBe(401);
     });
   });
 });

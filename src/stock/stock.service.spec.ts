@@ -35,6 +35,13 @@ describe('StockService', () => {
         findMany: jest.fn(),
         create: jest.fn(),
       },
+      product: {
+        findUnique: jest.fn(),
+      },
+      workOrderConsumptionEvent: {
+        count: jest.fn(),
+        findFirst: jest.fn(),
+      },
       $transaction: jest.fn(async (callback) => callback(prisma)),
     } as unknown as PrismaService;
     service = new StockService(prisma);
@@ -256,6 +263,68 @@ describe('StockService', () => {
         BadRequestException
       );
       expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getOpenContainers', () => {
+    const productRecord = {
+      id: 'product-1',
+      code: 'OIL-5W30',
+      name: 'Engine oil 5W-30',
+      consumptionType: 'partial',
+      isActive: true,
+      deletedAt: null,
+    };
+
+    it('returns the open-container balance with last opened info', async () => {
+      mockResolved(prisma.product.findUnique, productRecord);
+      (
+        prisma.workOrderConsumptionEvent.count as unknown as jest.Mock
+      ).mockImplementation(({ where }) =>
+        Promise.resolve(where.type === 'opened' ? 3 : 1)
+      );
+      mockResolved(prisma.workOrderConsumptionEvent.findFirst, {
+        workOrderId: 'wo-1',
+        workOrder: { orderNumber: 'OC-2026-000001' },
+        registeredBy: { id: 'user-1', name: 'Juan' },
+        createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      });
+
+      const result = await service.getOpenContainers('product-1');
+
+      expect(result).toEqual({
+        productId: 'product-1',
+        openContainers: 2,
+        lastOpened: {
+          workOrderId: 'wo-1',
+          workOrderNumber: 'OC-2026-000001',
+          registeredBy: { id: 'user-1', name: 'Juan' },
+          createdAt: new Date('2026-01-02T00:00:00.000Z'),
+        },
+      });
+    });
+
+    it('returns zero balance and null lastOpened when nothing was opened', async () => {
+      mockResolved(prisma.product.findUnique, productRecord);
+      mockResolved(prisma.workOrderConsumptionEvent.count, 0);
+      mockResolved(prisma.workOrderConsumptionEvent.findFirst, null);
+
+      const result = await service.getOpenContainers('product-1');
+
+      expect(result).toEqual({
+        productId: 'product-1',
+        openContainers: 0,
+        lastOpened: null,
+      });
+    });
+
+    it('throws NotFoundException when the product does not exist', async () => {
+      mockResolved(prisma.product.findUnique, null);
+
+      await expect(service.getOpenContainers('missing')).rejects.toMatchObject({
+        response: { errorCode: 'PRODUCT_NOT_FOUND' },
+      });
+      expect(prisma.workOrderConsumptionEvent.count).not.toHaveBeenCalled();
     });
   });
 });
