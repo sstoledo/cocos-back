@@ -12,11 +12,12 @@ describe('UsersService', () => {
     service = new UsersService(prisma);
   });
 
-  it('returns the user with role relation for the given id', async () => {
+  it('returns the user with role and employeeId for the given id', async () => {
     const user = {
       id: 'user-1',
       email: 'test@example.com',
       role: { id: 'role-1', name: 'Admin' },
+      employee: { id: 'emp-1', name: 'Juan' },
     };
     (prisma.user.findUnique as unknown as jest.Mock).mockResolvedValue(user);
 
@@ -29,7 +30,17 @@ describe('UsersService', () => {
         employee: { select: { id: true, name: true } },
       },
     });
-    expect(result).toEqual(user);
+    expect(result).toMatchObject({
+      id: 'user-1',
+      employeeId: 'emp-1',
+      employee: { id: 'emp-1', name: 'Juan' },
+    });
+  });
+
+  it('returns null when the user does not exist', async () => {
+    (prisma.user.findUnique as unknown as jest.Mock).mockResolvedValue(null);
+
+    await expect(service.findMe('missing')).resolves.toBeNull();
   });
 
   describe('create with employeeId', () => {
