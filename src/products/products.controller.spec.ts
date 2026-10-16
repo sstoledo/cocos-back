@@ -71,20 +71,20 @@ describe('ProductsController', () => {
       expect(roles).toHaveLength(6);
     });
 
-    it('restricts create to Admin', () => {
+    it('restricts create to Admin and Warehouse', () => {
       const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
         ProductsController.prototype.create,
         ProductsController,
       ]);
-      expect(roles).toEqual([RoleName.Admin]);
+      expect(roles).toEqual([RoleName.Admin, RoleName.Warehouse]);
     });
 
-    it('restricts update to Admin', () => {
+    it('restricts update to Admin and Warehouse', () => {
       const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
         ProductsController.prototype.update,
         ProductsController,
       ]);
-      expect(roles).toEqual([RoleName.Admin]);
+      expect(roles).toEqual([RoleName.Admin, RoleName.Warehouse]);
     });
 
     it('restricts remove to Admin', () => {

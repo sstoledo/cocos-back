@@ -54,7 +54,7 @@ export class ProductsController {
   }
 
   @Post()
-  @Roles(RoleName.Admin)
+  @Roles(RoleName.Admin, RoleName.Warehouse)
   @UseInterceptors(FileInterceptor('image'))
   create(
     @Body() dto: CreateProductDto,
@@ -76,7 +76,7 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  @Roles(RoleName.Admin)
+  @Roles(RoleName.Admin, RoleName.Warehouse)
   @UseInterceptors(FileInterceptor('image'))
   update(
     @Param('id') id: string,
