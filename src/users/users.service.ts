@@ -23,11 +23,12 @@ type UserWithRole = Prisma.UserGetPayload<{ include: typeof USER_INCLUDE }>;
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findMe(userId: string) {
-    return this.prisma.user.findUnique({
+  async findMe(userId: string) {
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: USER_INCLUDE,
     });
+    return user ? this.toResponse(user) : null;
   }
 
   async findAll(queryDto: ListUsersQueryDto) {
