@@ -1,5 +1,12 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class ListProductsQueryDto {
   @IsOptional()
@@ -13,6 +20,11 @@ export class ListProductsQueryDto {
   @IsInt()
   @Min(1)
   limit?: number = 10;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isActive?: boolean;
 
   @IsOptional()
   @IsString()

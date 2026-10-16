@@ -106,6 +106,17 @@ describe('ProductsService', () => {
       expect(result.data[0]).toBeInstanceOf(ProductResponseDto);
       expect(result.meta).toEqual({ page: 1, limit: 10, total: 2 });
     });
+
+    it('honors the isActive filter when explicitly provided', async () => {
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue([]);
+      (prisma.product.count as unknown as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({ isActive: false });
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { isActive: false } })
+      );
+    });
   });
 
   describe('findOne', () => {
