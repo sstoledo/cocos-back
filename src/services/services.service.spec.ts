@@ -38,6 +38,16 @@ describe('ServicesService', () => {
         update: jest.fn(),
         count: jest.fn(),
       },
+      serviceProduct: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+      product: {
+        findUnique: jest.fn(),
+      },
     } as unknown as PrismaService;
     service = new ServicesService(prisma);
   });
@@ -221,6 +231,189 @@ describe('ServicesService', () => {
       );
 
       await expect(service.remove('svc-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('recipe (service products)', () => {
+    const productRecord = {
+      id: 'prod-1',
+      code: 'FLT-001',
+      name: 'Oil filter',
+      consumptionType: 'direct',
+      isActive: true,
+      deletedAt: null,
+    };
+
+    const recipeLine = {
+      id: 'sp-1',
+      serviceId: 'svc-1',
+      productId: 'prod-1',
+      quantity: 1,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      product: productRecord,
+    };
+
+    it('lists recipe lines for an active service', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (
+        prisma.serviceProduct.findMany as unknown as jest.Mock
+      ).mockResolvedValue([recipeLine]);
+
+      const result = await service.listRecipe('svc-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        productId: 'prod-1',
+        quantity: 1,
+        product: { code: 'FLT-001', consumptionType: 'direct' },
+      });
+    });
+
+    it('throws NotFoundException listing the recipe of a missing service', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(service.listRecipe('missing')).rejects.toThrow(
+        NotFoundException
+      );
+      expect(prisma.serviceProduct.findMany).not.toHaveBeenCalled();
+    });
+
+    it('adds a recipe line for an existing service and product', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        productRecord
+      );
+      (prisma.serviceProduct.create as unknown as jest.Mock).mockResolvedValue(
+        recipeLine
+      );
+
+      const result = await service.addRecipeLine('svc-1', {
+        productId: 'prod-1',
+        quantity: 1,
+      });
+
+      expect(prisma.serviceProduct.create).toHaveBeenCalledWith({
+        data: { serviceId: 'svc-1', productId: 'prod-1', quantity: 1 },
+        include: { product: true },
+      });
+      expect(result).toMatchObject({ id: 'sp-1', quantity: 1 });
+    });
+
+    it('rejects a recipe line when the product does not exist', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        null
+      );
+
+      await expect(
+        service.addRecipeLine('svc-1', { productId: 'missing', quantity: 1 })
+      ).rejects.toMatchObject({ response: { errorCode: 'PRODUCT_NOT_FOUND' } });
+      expect(prisma.serviceProduct.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects duplicate recipe lines with a conflict error', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        productRecord
+      );
+      (prisma.serviceProduct.create as unknown as jest.Mock).mockRejectedValue(
+        createPrismaError('P2002')
+      );
+
+      await expect(
+        service.addRecipeLine('svc-1', { productId: 'prod-1', quantity: 1 })
+      ).rejects.toMatchObject({
+        response: { errorCode: 'SERVICE_PRODUCT_ALREADY_EXISTS' },
+      });
+    });
+
+    it('updates the quantity of an existing recipe line', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (
+        prisma.serviceProduct.findUnique as unknown as jest.Mock
+      ).mockResolvedValue(recipeLine);
+      (prisma.serviceProduct.update as unknown as jest.Mock).mockResolvedValue({
+        ...recipeLine,
+        quantity: 3,
+      });
+
+      const result = await service.updateRecipeLine('svc-1', 'prod-1', {
+        quantity: 3,
+      });
+
+      expect(prisma.serviceProduct.update).toHaveBeenCalledWith({
+        where: {
+          serviceId_productId: { serviceId: 'svc-1', productId: 'prod-1' },
+        },
+        data: { quantity: 3 },
+        include: { product: true },
+      });
+      expect(result).toMatchObject({ quantity: 3 });
+    });
+
+    it('throws NotFoundException when updating a missing recipe line', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (
+        prisma.serviceProduct.findUnique as unknown as jest.Mock
+      ).mockResolvedValue(null);
+
+      await expect(
+        service.updateRecipeLine('svc-1', 'prod-1', { quantity: 3 })
+      ).rejects.toMatchObject({
+        response: { errorCode: 'SERVICE_PRODUCT_NOT_FOUND' },
+      });
+      expect(prisma.serviceProduct.update).not.toHaveBeenCalled();
+    });
+
+    it('removes an existing recipe line', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (
+        prisma.serviceProduct.findUnique as unknown as jest.Mock
+      ).mockResolvedValue(recipeLine);
+      (prisma.serviceProduct.delete as unknown as jest.Mock).mockResolvedValue(
+        recipeLine
+      );
+
+      await service.removeRecipeLine('svc-1', 'prod-1');
+
+      expect(prisma.serviceProduct.delete).toHaveBeenCalledWith({
+        where: {
+          serviceId_productId: { serviceId: 'svc-1', productId: 'prod-1' },
+        },
+      });
+    });
+
+    it('throws NotFoundException when removing a missing recipe line', async () => {
+      (prisma.service.findUnique as unknown as jest.Mock).mockResolvedValue(
+        serviceRecord
+      );
+      (
+        prisma.serviceProduct.findUnique as unknown as jest.Mock
+      ).mockResolvedValue(null);
+
+      await expect(
+        service.removeRecipeLine('svc-1', 'prod-1')
+      ).rejects.toMatchObject({
+        response: { errorCode: 'SERVICE_PRODUCT_NOT_FOUND' },
+      });
+      expect(prisma.serviceProduct.delete).not.toHaveBeenCalled();
     });
   });
 });

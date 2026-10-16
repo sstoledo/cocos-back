@@ -35,6 +35,19 @@ export class StockController {
     return this.stockService.getMovementsByProduct(productId);
   }
 
+  @Get('products/:productId/open-containers')
+  @Roles(
+    RoleName.Admin,
+    RoleName.Reception,
+    RoleName.Mechanic,
+    RoleName.Warehouse,
+    RoleName.Purchasing,
+    RoleName.ReadOnly
+  )
+  getOpenContainers(@Param('productId') productId: string) {
+    return this.stockService.getOpenContainers(productId);
+  }
+
   @Post('movements')
   @Roles(RoleName.Admin, RoleName.Warehouse, RoleName.Purchasing)
   createMovement(@Body() dto: CreateStockMovementDto) {

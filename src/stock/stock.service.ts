@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { StockMovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateStockMovementDto } from './dto/create-stock-movement.dto';
@@ -6,6 +10,51 @@ import type { CreateStockMovementDto } from './dto/create-stock-movement.dto';
 @Injectable()
 export class StockService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getOpenContainers(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId, isActive: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException({
+        message: 'Product not found or inactive',
+        errorCode: 'PRODUCT_NOT_FOUND',
+      });
+    }
+
+    // Containers have no individual identity: the balance is global per
+    // product (opened events minus depleted events across all work orders).
+    const [openedCount, depletedCount, lastOpened] = await Promise.all([
+      this.prisma.workOrderConsumptionEvent.count({
+        where: { productId, type: 'opened' },
+      }),
+      this.prisma.workOrderConsumptionEvent.count({
+        where: { productId, type: 'depleted' },
+      }),
+      this.prisma.workOrderConsumptionEvent.findFirst({
+        where: { productId, type: 'opened' },
+        orderBy: { createdAt: 'desc' },
+        include: { workOrder: true, registeredBy: true },
+      }),
+    ]);
+
+    return {
+      productId,
+      openContainers: openedCount - depletedCount,
+      lastOpened: lastOpened
+        ? {
+            workOrderId: lastOpened.workOrderId,
+            workOrderNumber: lastOpened.workOrder.orderNumber,
+            registeredBy: {
+              id: lastOpened.registeredBy.id,
+              name: lastOpened.registeredBy.name,
+            },
+            createdAt: lastOpened.createdAt,
+          }
+        : null,
+    };
+  }
 
   async getStockByProduct(productId: string) {
     const result = await this.prisma.lotItem.aggregate({

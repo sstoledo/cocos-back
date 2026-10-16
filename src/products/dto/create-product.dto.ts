@@ -1,6 +1,8 @@
+import { ConsumptionType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -62,4 +64,8 @@ export class CreateProductDto {
   @Type(() => Boolean)
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsEnum(ConsumptionType)
+  consumptionType?: ConsumptionType;
 }

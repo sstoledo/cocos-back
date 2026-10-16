@@ -13,6 +13,7 @@ import {
 import { RoleName } from '@prisma/client';
 import type { RequestWithUser } from '../auth';
 import { Roles, RolesGuard } from '../auth';
+import { CreateConsumptionEventDto } from './dto/create-consumption-event.dto';
 import { CreateWorkOrderPaymentDto } from './dto/create-work-order-payment.dto';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
@@ -97,6 +98,37 @@ export class WorkOrdersController {
   @Roles(RoleName.Admin, RoleName.Reception)
   addPayment(@Param('id') id: string, @Body() dto: CreateWorkOrderPaymentDto) {
     return this.workOrdersService.addPayment(id, dto);
+  }
+
+  @Get(':id/consumptions')
+  @Roles(
+    RoleName.Admin,
+    RoleName.Reception,
+    RoleName.Mechanic,
+    RoleName.Warehouse,
+    RoleName.Purchasing,
+    RoleName.ReadOnly
+  )
+  listConsumptionEvents(
+    @Param('id') id: string,
+    @Req() request: RequestWithUser
+  ) {
+    return this.workOrdersService.listConsumptionEvents(id, request.user);
+  }
+
+  @Post(':id/consumptions')
+  @Roles(
+    RoleName.Admin,
+    RoleName.Reception,
+    RoleName.Mechanic,
+    RoleName.Warehouse
+  )
+  addConsumptionEvent(
+    @Param('id') id: string,
+    @Body() dto: CreateConsumptionEventDto,
+    @Req() request: RequestWithUser
+  ) {
+    return this.workOrdersService.addConsumptionEvent(id, dto, request.user);
   }
 
   @Delete(':id')
