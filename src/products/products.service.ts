@@ -28,8 +28,8 @@ export class ProductsService {
   }
 
   async findAll(queryDto: ListProductsQueryDto) {
-    const { page = 1, limit = 10, q, categoryId, brandId } = queryDto;
-    const where: Prisma.ProductWhereInput = { isActive: true };
+    const { page = 1, limit = 10, q, categoryId, brandId, isActive } = queryDto;
+    const where: Prisma.ProductWhereInput = { isActive: isActive ?? true };
 
     if (q !== undefined) {
       where.OR = [
