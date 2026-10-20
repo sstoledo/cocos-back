@@ -28,8 +28,20 @@ export class ProductsService {
   }
 
   async findAll(queryDto: ListProductsQueryDto) {
-    const { page = 1, limit = 10, q, categoryId, brandId, isActive } = queryDto;
-    const where: Prisma.ProductWhereInput = { isActive: isActive ?? true };
+    const {
+      page = 1,
+      limit = 10,
+      q,
+      categoryId,
+      brandId,
+      presentationId,
+      isActive,
+    } = queryDto;
+    const where: Prisma.ProductWhereInput = {};
+
+    if (isActive !== undefined) {
+      where.isActive = isActive;
+    }
 
     if (q !== undefined) {
       where.OR = [
@@ -44,6 +56,10 @@ export class ProductsService {
 
     if (brandId !== undefined) {
       where.brandId = brandId;
+    }
+
+    if (presentationId !== undefined) {
+      where.presentationId = presentationId;
     }
 
     const [data, total] = await Promise.all([
@@ -61,10 +77,36 @@ export class ProductsService {
       this.prisma.product.count({ where }),
     ]);
 
+    const stockByProduct = await this.getStockByProductIds(
+      data.map((product) => product.id)
+    );
+
     return {
-      data: data.map((product) => this.toResponse(product)),
+      data: data.map((product) =>
+        this.toResponse(product, stockByProduct.get(product.id) ?? 0)
+      ),
       meta: { page, limit, total },
     };
+  }
+
+  private async getStockByProductIds(
+    productIds: string[]
+  ): Promise<Map<string, number>> {
+    const stockByProduct = new Map<string, number>();
+    if (productIds.length === 0) {
+      return stockByProduct;
+    }
+
+    const grouped = await this.prisma.lotItem.groupBy({
+      by: ['productId'],
+      where: { productId: { in: productIds } },
+      _sum: { remainingQuantity: true },
+    });
+
+    for (const row of grouped) {
+      stockByProduct.set(row.productId, row._sum.remainingQuantity ?? 0);
+    }
+    return stockByProduct;
   }
 
   async findOne(id: string) {
@@ -164,13 +206,14 @@ export class ProductsService {
     return this.toResponse(updated);
   }
 
-  private toResponse(product: Product): ProductResponseDto {
+  private toResponse(product: Product, stock?: number): ProductResponseDto {
     const response = plainToInstance(ProductResponseDto, product, {
       excludeExtraneousValues: true,
     });
     response.imageUrl = product.imagePublicId
       ? `https://res.cloudinary.com/${this.cloudName}/image/upload/${product.imagePublicId}`
       : null;
+    response.stock = stock;
     return response;
   }
 

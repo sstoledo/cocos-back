@@ -40,4 +40,9 @@ export class ListProductsQueryDto {
   @IsString()
   @MaxLength(100)
   brandId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  presentationId?: string;
 }

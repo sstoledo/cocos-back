@@ -40,8 +40,6 @@ const productInclude = {
 
 const cloudName = 'demo';
 
-const activeWhere = { isActive: true };
-
 const softDeleteData = { isActive: false, deletedAt: expect.any(Date) };
 
 describe('ProductsService', () => {
@@ -61,6 +59,9 @@ describe('ProductsService', () => {
         delete: jest.fn(),
         count: jest.fn(),
       },
+      lotItem: {
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
     } as unknown as PrismaService;
     uploadService = {
       uploadImage: jest.fn().mockResolvedValue(uploadedImage),
@@ -73,7 +74,7 @@ describe('ProductsService', () => {
   });
 
   describe('findAll', () => {
-    it('returns only active products ordered by name with relations included', async () => {
+    it('returns all products without isActive filter when the param is absent', async () => {
       const products = [
         {
           id: 'product-2',
@@ -96,7 +97,7 @@ describe('ProductsService', () => {
       const result = await service.findAll({});
 
       expect(prisma.product.findMany).toHaveBeenCalledWith({
-        where: activeWhere,
+        where: {},
         orderBy: { name: 'asc' },
         skip: 0,
         take: 10,
@@ -116,6 +117,67 @@ describe('ProductsService', () => {
       expect(prisma.product.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { isActive: false } })
       );
+
+      await service.findAll({ isActive: true });
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { isActive: true } })
+      );
+    });
+
+    it('applies the presentationId filter when provided', async () => {
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue([]);
+      (prisma.product.count as unknown as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({ presentationId: 'pres-1' });
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { presentationId: 'pres-1' } })
+      );
+    });
+
+    it('maps aggregated stock per product and defaults to 0 without lot items', async () => {
+      const products = [
+        {
+          id: 'product-1',
+          name: 'Engine oil',
+          price: '30.00',
+          ...baseRelations,
+        },
+        {
+          id: 'product-2',
+          name: 'Brake pads',
+          price: '50.00',
+          ...baseRelations,
+        },
+      ];
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
+        products
+      );
+      (prisma.product.count as unknown as jest.Mock).mockResolvedValue(2);
+      (prisma.lotItem.groupBy as unknown as jest.Mock).mockResolvedValue([
+        { productId: 'product-1', _sum: { remainingQuantity: 7 } },
+      ]);
+
+      const result = await service.findAll({});
+
+      expect(prisma.lotItem.groupBy).toHaveBeenCalledWith({
+        by: ['productId'],
+        where: { productId: { in: ['product-1', 'product-2'] } },
+        _sum: { remainingQuantity: true },
+      });
+      expect(result.data[0].stock).toBe(7);
+      expect(result.data[1].stock).toBe(0);
+    });
+
+    it('skips the stock aggregation when the page is empty', async () => {
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue([]);
+      (prisma.product.count as unknown as jest.Mock).mockResolvedValue(0);
+
+      const result = await service.findAll({});
+
+      expect(prisma.lotItem.groupBy).not.toHaveBeenCalled();
+      expect(result.data).toEqual([]);
     });
   });
 
