@@ -72,6 +72,9 @@ export class ProductResponseDto {
   isActive: boolean;
 
   @Expose()
+  stock?: number;
+
+  @Expose()
   consumptionType: 'direct' | 'partial';
 
   @Expose()
