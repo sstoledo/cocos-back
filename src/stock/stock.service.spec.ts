@@ -30,6 +30,7 @@ describe('StockService', () => {
         aggregate: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
       },
       stockMovement: {
         findMany: jest.fn(),
@@ -325,6 +326,167 @@ describe('StockService', () => {
         response: { errorCode: 'PRODUCT_NOT_FOUND' },
       });
       expect(prisma.workOrderConsumptionEvent.count).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('consumeFifo', () => {
+    const asTx = () =>
+      prisma as unknown as Parameters<StockService['consumeFifo']>[0];
+
+    it('availableStock sums remainingQuantity greater than zero', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 7 },
+      });
+
+      expect(await service.availableStock(asTx(), 'product-1')).toBe(7);
+      expect(prisma.lotItem.aggregate).toHaveBeenCalledWith({
+        _sum: { remainingQuantity: true },
+        where: { productId: 'product-1', remainingQuantity: { gt: 0 } },
+      });
+    });
+
+    const baseMovement = {
+      movementType: StockMovementType.sale,
+      reason: 'Sale VTA-2026-000001',
+      saleId: 'sale-1',
+    };
+
+    it('walks FIFO across two real lots, draining the older first', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 8 },
+      });
+      mockResolved(prisma.lotItem.findMany, [
+        { id: 'lot-a', productId: 'product-1', remainingQuantity: 3 },
+        { id: 'lot-b', productId: 'product-1', remainingQuantity: 10 },
+      ]);
+      mockResolved(prisma.lotItem.updateMany, { count: 1 });
+      mockResolved(prisma.stockMovement.create, {});
+
+      await service.consumeFifo(
+        asTx(),
+        'product-1',
+        5,
+        baseMovement,
+        'Fail msg'
+      );
+
+      expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'lot-a', remainingQuantity: { gte: 3 } },
+        data: { remainingQuantity: { decrement: 3 } },
+      });
+      expect(prisma.lotItem.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'lot-b', remainingQuantity: { gte: 2 } },
+        data: { remainingQuantity: { decrement: 2 } },
+      });
+      expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(1, {
+        data: {
+          productId: 'product-1',
+          lotItemId: 'lot-a',
+          saleId: 'sale-1',
+          type: StockMovementType.sale,
+          quantity: -3,
+          reason: 'Sale VTA-2026-000001',
+        },
+      });
+      expect(prisma.stockMovement.create).toHaveBeenNthCalledWith(2, {
+        data: {
+          productId: 'product-1',
+          lotItemId: 'lot-b',
+          saleId: 'sale-1',
+          type: StockMovementType.sale,
+          quantity: -2,
+          reason: 'Sale VTA-2026-000001',
+        },
+      });
+    });
+
+    it('consumes the exact available boundary and creates no extra movement', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 3 },
+      });
+      mockResolved(prisma.lotItem.findMany, [
+        { id: 'lot-a', productId: 'product-1', remainingQuantity: 3 },
+      ]);
+      mockResolved(prisma.lotItem.updateMany, { count: 1 });
+      mockResolved(prisma.stockMovement.create, {});
+
+      await service.consumeFifo(
+        asTx(),
+        'product-1',
+        3,
+        baseMovement,
+        'Fail msg'
+      );
+
+      expect(prisma.lotItem.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
+      expect(prisma.lotItem.updateMany).toHaveBeenCalledWith({
+        where: { id: 'lot-a', remainingQuantity: { gte: 3 } },
+        data: { remainingQuantity: { decrement: 3 } },
+      });
+    });
+
+    it('throws INSUFFICIENT_STOCK before any mutation when the aggregate is short', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 2 },
+      });
+
+      await expect(
+        service.consumeFifo(asTx(), 'product-1', 5, baseMovement, 'Fail msg')
+      ).rejects.toMatchObject({
+        response: {
+          message: 'Fail msg',
+          errorCode: 'INSUFFICIENT_STOCK',
+          details: [{ productId: 'product-1', requested: 5, available: 2 }],
+        },
+      });
+      expect(prisma.lotItem.findMany).not.toHaveBeenCalled();
+      expect(prisma.lotItem.updateMany).not.toHaveBeenCalled();
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('throws INSUFFICIENT_STOCK when the guarded decrement matches zero rows', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 3 },
+      });
+      mockResolved(prisma.lotItem.findMany, [
+        { id: 'lot-a', productId: 'product-1', remainingQuantity: 3 },
+      ]);
+      mockResolved(prisma.lotItem.updateMany, { count: 0 });
+
+      await expect(
+        service.consumeFifo(asTx(), 'product-1', 3, baseMovement, 'Fail msg')
+      ).rejects.toMatchObject({
+        response: {
+          errorCode: 'INSUFFICIENT_STOCK',
+          details: [{ productId: 'product-1', requested: 3, available: 0 }],
+        },
+      });
+      expect(prisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('omits saleId/workOrderId from the movement when not provided', async () => {
+      mockResolved(prisma.lotItem.aggregate, {
+        _sum: { remainingQuantity: 1 },
+      });
+      mockResolved(prisma.lotItem.findMany, [
+        { id: 'lot-a', productId: 'product-1', remainingQuantity: 1 },
+      ]);
+      mockResolved(prisma.lotItem.updateMany, { count: 1 });
+      mockResolved(prisma.stockMovement.create, {});
+
+      await service.consumeFifo(
+        asTx(),
+        'product-1',
+        1,
+        { movementType: StockMovementType.service_usage, reason: 'WO usage' },
+        'Fail msg'
+      );
+
+      const arg = (prisma.stockMovement.create as jest.Mock).mock.calls[0][0];
+      expect(arg.data.saleId).toBeUndefined();
+      expect(arg.data.workOrderId).toBeUndefined();
+      expect(arg.data.type).toBe(StockMovementType.service_usage);
     });
   });
 });

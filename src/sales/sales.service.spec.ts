@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PaymentMethod, Prisma, SaleStatus } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
 import type { CreateSaleDto } from './dto/create-sale.dto';
 import { SalesService } from './sales.service';
 
@@ -97,7 +98,7 @@ describe('SalesService', () => {
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       })
     );
-    service = new SalesService(prisma);
+    service = new SalesService(prisma, new StockService(prisma));
   });
 
   describe('create', () => {

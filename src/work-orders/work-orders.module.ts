@@ -4,6 +4,7 @@ import { ClientsModule } from '../clients/clients.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ServicesModule } from '../services/services.module';
+import { StockModule } from '../stock/stock.module';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { WorkOrdersController } from './work-orders.controller';
 import { WorkOrdersService } from './work-orders.service';
@@ -16,6 +17,7 @@ import { WorkOrdersService } from './work-orders.service';
     VehiclesModule,
     ServicesModule,
     NotificationsModule,
+    StockModule,
   ],
   controllers: [WorkOrdersController],
   providers: [WorkOrdersService],

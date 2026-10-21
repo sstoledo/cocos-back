@@ -10,6 +10,7 @@ import { plainToInstance } from 'class-transformer';
 import { ClientsService } from '../clients/clients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { ConsumptionEventResponseDto } from './dto/consumption-event-response.dto';
 import type { CreateConsumptionEventDto } from './dto/create-consumption-event.dto';
@@ -49,7 +50,8 @@ export class WorkOrdersService {
     private readonly prisma: PrismaService,
     private readonly clientsService: ClientsService,
     private readonly vehiclesService: VehiclesService,
-    private readonly notificationsService: NotificationsService
+    private readonly notificationsService: NotificationsService,
+    private readonly stockService: StockService
   ) {}
 
   async create(dto: CreateWorkOrderDto) {
@@ -460,12 +462,16 @@ export class WorkOrdersService {
             errorCode: 'CONSUMPTION_QUANTITY_REQUIRED',
           });
         }
-        await this.consumeStockForConsumption(
+        await this.stockService.consumeFifo(
           tx,
           product.id,
           dto.quantity,
-          workOrder,
-          `WO ${workOrder.orderNumber} consumption (used)`
+          {
+            movementType: 'service_usage',
+            reason: `WO ${workOrder.orderNumber} consumption (used)`,
+            workOrderId: workOrder.id,
+          },
+          'Insufficient stock to register the consumption'
         );
       }
 
@@ -488,12 +494,16 @@ export class WorkOrdersService {
           });
         }
 
-        await this.consumeStockForConsumption(
+        await this.stockService.consumeFifo(
           tx,
           product.id,
           1,
-          workOrder,
-          `WO ${workOrder.orderNumber} container depleted`
+          {
+            movementType: 'service_usage',
+            reason: `WO ${workOrder.orderNumber} container depleted`,
+            workOrderId: workOrder.id,
+          },
+          'Insufficient stock to register the consumption'
         );
       }
 
@@ -524,79 +534,6 @@ export class WorkOrdersService {
     });
 
     return events.map((event) => this.toConsumptionResponse(event));
-  }
-
-  /**
-   * Guarded FIFO stock deduction — mirrors the allocation logic in
-   * SalesService.create (keep in sync; extracting a shared StockService is
-   * a deferred follow-up).
-   */
-  private async consumeStockForConsumption(
-    tx: Prisma.TransactionClient,
-    productId: string,
-    quantity: number,
-    workOrder: { id: string; orderNumber: string },
-    reason: string
-  ): Promise<void> {
-    const aggregate = await tx.lotItem.aggregate({
-      _sum: { remainingQuantity: true },
-      where: { productId, remainingQuantity: { gt: 0 } },
-    });
-    const available = aggregate._sum.remainingQuantity ?? 0;
-
-    if (available < quantity) {
-      throw new ConflictException({
-        message: 'Insufficient stock to register the consumption',
-        errorCode: 'INSUFFICIENT_STOCK',
-        details: [{ productId, requested: quantity, available }],
-      });
-    }
-
-    const lots = await tx.lotItem.findMany({
-      where: { productId, remainingQuantity: { gt: 0 } },
-      orderBy: { lot: { receivedAt: 'asc' } },
-    });
-
-    let needed = quantity;
-
-    for (const lot of lots) {
-      if (needed === 0) {
-        break;
-      }
-
-      const allocation = Math.min(lot.remainingQuantity, needed);
-      const lotGuard = await tx.lotItem.updateMany({
-        where: { id: lot.id, remainingQuantity: { gte: allocation } },
-        data: { remainingQuantity: { decrement: allocation } },
-      });
-
-      if (lotGuard.count === 0) {
-        throw new ConflictException({
-          message: 'Insufficient stock to register the consumption',
-          errorCode: 'INSUFFICIENT_STOCK',
-          details: [
-            {
-              productId,
-              requested: quantity,
-              available: quantity - needed,
-            },
-          ],
-        });
-      }
-
-      await tx.stockMovement.create({
-        data: {
-          productId,
-          lotItemId: lot.id,
-          workOrderId: workOrder.id,
-          type: 'service_usage',
-          quantity: -allocation,
-          reason,
-        },
-      });
-
-      needed -= allocation;
-    }
   }
 
   private toConsumptionResponse(event: {

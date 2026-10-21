@@ -11,6 +11,7 @@ import {
   WorkOrderStatus,
 } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
 import type { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import type { ListWorkOrdersQueryDto } from './dto/list-work-orders-query.dto';
 import type { UpdateWorkOrderDto } from './dto/update-work-order.dto';
@@ -177,7 +178,8 @@ describe('WorkOrdersService', () => {
       // biome-ignore lint/suspicious/noExplicitAny: test mock types
       vehiclesService as any,
       // biome-ignore lint/suspicious/noExplicitAny: test mock types
-      notificationsService as any
+      notificationsService as any,
+      new StockService(prisma)
     );
   });
 
