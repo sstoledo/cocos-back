@@ -5,11 +5,13 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { SalesService } from '../sales/sales.service';
 import { ProformasService } from './proformas.service';
 
 describe('ProformasService', () => {
   let service: ProformasService;
   let prisma: PrismaService;
+  let salesService: SalesService;
 
   const productRecord = {
     id: 'prod-1',
@@ -75,6 +77,9 @@ describe('ProformasService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    salesService = {
+      createSaleInTransaction: jest.fn(),
+    } as unknown as SalesService;
     prisma = {
       product: { findUnique: jest.fn() },
       client: { findUnique: jest.fn() },
@@ -90,7 +95,7 @@ describe('ProformasService', () => {
       ),
     } as unknown as PrismaService;
 
-    service = new ProformasService(prisma);
+    service = new ProformasService(prisma, salesService);
   });
 
   const txMock = {
@@ -346,6 +351,116 @@ describe('ProformasService', () => {
       await expect(service.findOne('missing')).rejects.toThrow(
         NotFoundException
       );
+    });
+  });
+
+  describe('convertToSale', () => {
+    const acceptedProforma = { ...baseProforma, status: 'accepted' };
+    const saleResult = { id: 'sale-9', saleNumber: 'VTA-2026-000003' };
+
+    it('rejects a missing proforma', async () => {
+      (prisma.proforma.findUnique as jest.Mock).mockResolvedValue(null);
+      await expect(
+        service.convertToSale('missing', { paymentMethod: 'cash' })
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it.each(['draft', 'sent', 'rejected', 'converted'])(
+      'rejects conversion when status is %s',
+      async (status) => {
+        (prisma.proforma.findUnique as jest.Mock).mockResolvedValue({
+          ...baseProforma,
+          status,
+        });
+        await expect(
+          service.convertToSale('prof-1', { paymentMethod: 'cash' })
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            errorCode: 'PROFORMA_NOT_ACCEPTED',
+          }),
+        });
+      }
+    );
+
+    it('flips to converted first, creates the sale in the same transaction and links it', async () => {
+      (prisma.proforma.findUnique as jest.Mock).mockResolvedValue(
+        acceptedProforma
+      );
+      txMock.proforma.updateMany.mockResolvedValue({ count: 1 });
+      (salesService.createSaleInTransaction as jest.Mock).mockResolvedValue(
+        saleResult
+      );
+      txMock.proforma.update.mockResolvedValue({
+        ...acceptedProforma,
+        status: 'converted',
+        convertedSaleId: 'sale-9',
+      });
+
+      const result = await service.convertToSale('prof-1', {
+        paymentMethod: 'cash',
+      });
+
+      expect(txMock.proforma.updateMany).toHaveBeenCalledWith({
+        where: { id: 'prof-1', status: 'accepted' },
+        data: { status: 'converted' },
+      });
+      expect(salesService.createSaleInTransaction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          paymentMethod: 'cash',
+          lineItems: [
+            expect.objectContaining({
+              productId: 'prod-1',
+              quantity: 2,
+              unitPriceSnapshot: new Prisma.Decimal(10.0),
+              subtotal: new Prisma.Decimal(20),
+            }),
+          ],
+        })
+      );
+      expect(txMock.proforma.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'prof-1' },
+          data: { convertedSaleId: 'sale-9' },
+        })
+      );
+      expect(result).toEqual(saleResult);
+    });
+
+    it('rolls back when a concurrent conversion wins the flip-first guard', async () => {
+      (prisma.proforma.findUnique as jest.Mock).mockResolvedValue(
+        acceptedProforma
+      );
+      txMock.proforma.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.convertToSale('prof-1', { paymentMethod: 'cash' })
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          errorCode: 'PROFORMA_NOT_ACCEPTED',
+        }),
+      });
+      expect(salesService.createSaleInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('propagates the sale failure so the whole transaction rolls back', async () => {
+      (prisma.proforma.findUnique as jest.Mock).mockResolvedValue(
+        acceptedProforma
+      );
+      txMock.proforma.updateMany.mockResolvedValue({ count: 1 });
+      (salesService.createSaleInTransaction as jest.Mock).mockRejectedValue(
+        new ConflictException({
+          message: 'Insufficient stock',
+          errorCode: 'INSUFFICIENT_STOCK',
+        })
+      );
+
+      await expect(
+        service.convertToSale('prof-1', { paymentMethod: 'cash' })
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INSUFFICIENT_STOCK' }),
+      });
+      expect(txMock.proforma.update).not.toHaveBeenCalled();
     });
   });
 });
