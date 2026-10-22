@@ -26,6 +26,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:demo": "ts-node prisma/seed-demo.ts",
+    "seed:e2e": "ts-node prisma/seed-e2e.ts",
     "audit": "pnpm audit",
     "audit:fix": "pnpm audit --fix",
     "test:integration": "jest --config ./test/jest-integration.json"
