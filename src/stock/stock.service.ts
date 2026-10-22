@@ -1,11 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { StockMovementType } from '@prisma/client';
+import { Prisma, StockMovementType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateStockMovementDto } from './dto/create-stock-movement.dto';
+
+export interface ConsumeMovementMeta {
+  movementType: StockMovementType;
+  reason: string;
+  saleId?: string;
+  workOrderId?: string;
+}
 
 @Injectable()
 export class StockService {
@@ -141,5 +149,104 @@ export class StockService {
         },
       });
     });
+  }
+
+  /**
+   * Units available for consumption for a product: the sum of remaining
+   * quantity across lots with stock left. Must be called inside the same
+   * transaction as the consumption it gates.
+   */
+  async availableStock(
+    tx: Prisma.TransactionClient,
+    productId: string
+  ): Promise<number> {
+    const aggregate = await tx.lotItem.aggregate({
+      _sum: { remainingQuantity: true },
+      where: { productId, remainingQuantity: { gt: 0 } },
+    });
+    return aggregate._sum.remainingQuantity ?? 0;
+  }
+
+  /**
+   * Guarded FIFO walk within an existing transaction: consumes the given
+   * quantity for a product from the lots with remaining stock, oldest
+   * received first, and records one negative stock movement per touched
+   * lot. The per-row guarded decrement makes it safe under concurrent
+   * transactions: a lost race surfaces as INSUFFICIENT_STOCK.
+   */
+  async consumeFifo(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    quantity: number,
+    movement: ConsumeMovementMeta,
+    message: string
+  ): Promise<Prisma.TransactionClient> {
+    const stockMovementData = {
+      productId,
+      saleId: movement.saleId,
+      workOrderId: movement.workOrderId,
+      type: movement.movementType,
+      reason: movement.reason,
+    };
+
+    const aggregate = await tx.lotItem.aggregate({
+      _sum: { remainingQuantity: true },
+      where: { productId, remainingQuantity: { gt: 0 } },
+    });
+    const available = aggregate._sum.remainingQuantity ?? 0;
+
+    if (available < quantity) {
+      throw new ConflictException({
+        message,
+        errorCode: 'INSUFFICIENT_STOCK',
+        details: [{ productId, requested: quantity, available }],
+      });
+    }
+
+    const lots = await tx.lotItem.findMany({
+      where: { productId, remainingQuantity: { gt: 0 } },
+      orderBy: { lot: { receivedAt: 'asc' } },
+    });
+
+    let consumed = 0;
+
+    for (const lot of lots) {
+      if (consumed === quantity) {
+        break;
+      }
+
+      const allocation = Math.min(lot.remainingQuantity, quantity - consumed);
+
+      const lotGuard = await tx.lotItem.updateMany({
+        where: { id: lot.id, remainingQuantity: { gte: allocation } },
+        data: { remainingQuantity: { decrement: allocation } },
+      });
+
+      if (lotGuard.count === 0) {
+        throw new ConflictException({
+          message,
+          errorCode: 'INSUFFICIENT_STOCK',
+          details: [
+            {
+              productId,
+              requested: quantity,
+              available: consumed,
+            },
+          ],
+        });
+      }
+
+      await tx.stockMovement.create({
+        data: {
+          ...stockMovementData,
+          lotItemId: lot.id,
+          quantity: -allocation,
+        },
+      });
+
+      consumed += allocation;
+    }
+
+    return tx;
   }
 }

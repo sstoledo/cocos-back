@@ -16,6 +16,7 @@ import type { Role, User } from '@prisma/client';
 import { ClientsService } from '../../src/clients/clients.service';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { StockService } from '../../src/stock/stock.service';
 import { VehiclesService } from '../../src/vehicles/vehicles.service';
 import type { CreateWorkOrderPaymentDto } from '../../src/work-orders/dto/create-work-order-payment.dto';
 import type { CreateWorkOrderDto } from '../../src/work-orders/dto/create-work-order.dto';
@@ -63,6 +64,7 @@ describe('WorkOrdersService (integration)', () => {
         VehiclesService,
         NotificationsService,
         PrismaService,
+        StockService,
       ],
     }).compile();
     moduleRef = compiled;
@@ -280,17 +282,20 @@ describe('WorkOrdersService (integration)', () => {
     const clients = moduleRef.get(ClientsService);
     const vehicles = moduleRef.get(VehiclesService);
     const notifications = moduleRef.get(NotificationsService);
+    const stockService = moduleRef.get(StockService);
     const serviceA = new WorkOrdersService(
       prisma,
       clients,
       vehicles,
-      notifications
+      notifications,
+      stockService
     );
     const serviceB = new WorkOrdersService(
       prisma,
       clients,
       vehicles,
-      notifications
+      notifications,
+      stockService
     );
 
     const order = await createOrder(); // total 100

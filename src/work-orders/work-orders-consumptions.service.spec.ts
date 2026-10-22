@@ -6,6 +6,7 @@ import {
 import type { Role, User } from '@prisma/client';
 import { Prisma, RoleName } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
 import type { CreateConsumptionEventDto } from './dto/create-consumption-event.dto';
 import { WorkOrdersService } from './work-orders.service';
 
@@ -115,7 +116,8 @@ describe('WorkOrdersService — consumptions', () => {
       prisma,
       clientsService as never,
       vehiclesService as never,
-      notificationsService as never
+      notificationsService as never,
+      new StockService(prisma)
     );
   });
 

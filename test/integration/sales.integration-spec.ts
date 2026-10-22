@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { SalesService } from '../../src/sales/sales.service';
+import { StockService } from '../../src/stock/stock.service';
 import { truncateAll } from './helpers';
 
 // S2: sales FIFO walk, shortage guard, sale-number sequence, and cancel
@@ -86,7 +87,7 @@ describe('SalesService (integration)', () => {
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
-      providers: [SalesService, PrismaService],
+      providers: [SalesService, StockService, PrismaService],
     }).compile();
     await moduleRef.init();
     prisma = moduleRef.get(PrismaService);

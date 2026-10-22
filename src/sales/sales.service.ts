@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
+import { StockService } from '../stock/stock.service';
 import type { CreateSaleDto } from './dto/create-sale.dto';
 import type { ListSalesQueryDto } from './dto/list-sales-query.dto';
 import { SaleResponseDto } from './dto/sale-response.dto';
@@ -20,7 +21,10 @@ const SALE_INCLUDE = {
 
 @Injectable()
 export class SalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stockService: StockService
+  ) {}
 
   async create(dto: CreateSaleDto) {
     const productLines = dto.productLines ?? [];
@@ -58,11 +62,10 @@ export class SalesService {
       }> = [];
 
       for (const line of productLineItems) {
-        const aggregate = await tx.lotItem.aggregate({
-          _sum: { remainingQuantity: true },
-          where: { productId: line.productId, remainingQuantity: { gt: 0 } },
-        });
-        const available = aggregate._sum.remainingQuantity ?? 0;
+        const available = await this.stockService.availableStock(
+          tx,
+          line.productId
+        );
 
         if (available < line.quantity) {
           shortages.push({
@@ -101,55 +104,21 @@ export class SalesService {
         include: SALE_INCLUDE,
       });
 
-      // NOTE: guarded FIFO walk copied verbatim from
-      // WorkOrdersService.consumeStockForOrder (B7.3) — keep in sync;
-      // extracting a shared StockService is an explicit deferred follow-up.
+      // FIFO consumption via StockService: single shared implementation of
+      // the guarded walk (same semantics as manual stock usage in work
+      // orders).
       for (const line of productLineItems) {
-        const lots = await tx.lotItem.findMany({
-          where: { productId: line.productId, remainingQuantity: { gt: 0 } },
-          orderBy: { lot: { receivedAt: 'asc' } },
-        });
-
-        let needed = line.quantity;
-
-        for (const lot of lots) {
-          if (needed === 0) {
-            break;
-          }
-
-          const allocation = Math.min(lot.remainingQuantity, needed);
-          const lotGuard = await tx.lotItem.updateMany({
-            where: { id: lot.id, remainingQuantity: { gte: allocation } },
-            data: { remainingQuantity: { decrement: allocation } },
-          });
-
-          if (lotGuard.count === 0) {
-            throw new ConflictException({
-              message: 'Insufficient stock to complete the sale',
-              errorCode: 'INSUFFICIENT_STOCK',
-              details: [
-                {
-                  productId: line.productId,
-                  requested: line.quantity,
-                  available: line.quantity - needed,
-                },
-              ],
-            });
-          }
-
-          await tx.stockMovement.create({
-            data: {
-              productId: line.productId,
-              lotItemId: lot.id,
-              saleId: sale.id,
-              type: 'sale',
-              quantity: -allocation,
-              reason: `Sale ${saleNumber}`,
-            },
-          });
-
-          needed -= allocation;
-        }
+        await this.stockService.consumeFifo(
+          tx,
+          line.productId,
+          line.quantity,
+          {
+            movementType: 'sale',
+            reason: `Sale ${saleNumber}`,
+            saleId: sale.id,
+          },
+          'Insufficient stock to complete the sale'
+        );
       }
 
       return this.toResponse(sale);
