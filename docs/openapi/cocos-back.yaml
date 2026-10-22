@@ -17,6 +17,20 @@ tags:
     description: User profile endpoints
   - name: Products
     description: Product catalog endpoints
+  - name: Clients
+    description: Client registry endpoints
+  - name: Vehicles
+    description: Client vehicle registry endpoints
+  - name: ShopServices
+    description: Shop services catalog (labor and price list)
+  - name: WorkOrders
+    description: Work orders, payments and status transitions
+  - name: Sales
+    description: Point-of-sale sales
+  - name: CashClosings
+    description: Cash register period closings
+  - name: Employees
+    description: Shop employees directory
 paths:
   /api/auth/sign-up/email:
     post:
@@ -402,6 +416,1215 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/clients:
+    get:
+      summary: List clients
+      description: >
+        Paginated client list ordered by name. Admin and Reception roles.
+        `query` filters by name or identification.
+      tags:
+        - Clients
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        '200':
+          description: Paginated clients
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ClientResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a client
+      description: Creates a client. Admin and Reception roles.
+      tags:
+        - Clients
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClient'
+      responses:
+        '201':
+          description: Client created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/clients/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a client by id
+      description: Returns a single client. Admin and Reception roles.
+      tags:
+        - Clients
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Client found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update a client
+      description: Partial update. Admin and Reception roles.
+      tags:
+        - Clients
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClient'
+      responses:
+        '200':
+          description: Client updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete a client
+      description: Soft-deletes the client. Admin role required.
+      tags:
+        - Clients
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Client deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/vehicles:
+    get:
+      summary: List vehicles
+      description: >
+        Paginated vehicle list. Admin, Reception and Mechanic roles.
+        `clientId` filters the vehicles of one client.
+      tags:
+        - Vehicles
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        '200':
+          description: Paginated vehicles
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VehicleResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a vehicle
+      description: Creates a vehicle for a client. Admin and Reception roles.
+      tags:
+        - Vehicles
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicle'
+      responses:
+        '201':
+          description: Vehicle created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '400':
+          description: >
+            Validation failed. Known business error code
+            VEHICLE_CLIENT_MISMATCH is not raised here; unknown plate format
+            is rejected as validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate plate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/vehicles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a vehicle by id
+      description: Returns a single vehicle. Admin, Reception and Mechanic roles.
+      tags:
+        - Vehicles
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Vehicle found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update a vehicle
+      description: Partial update. Admin and Reception roles.
+      tags:
+        - Vehicles
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVehicle'
+      responses:
+        '200':
+          description: Vehicle updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete a vehicle
+      description: Soft-deletes the vehicle. Admin role required.
+      tags:
+        - Vehicles
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Vehicle deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/services:
+    get:
+      summary: List shop services
+      description: Paginated service catalog. Admin, Reception and Mechanic roles.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        '200':
+          description: Paginated services
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a shop service
+      description: Creates a catalog service. Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateService'
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate service code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/services/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a shop service by id
+      description: Returns a single service. Admin, Reception and Mechanic roles.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Service found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update a shop service
+      description: Partial update. Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateService'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete a shop service
+      description: Soft-deletes the service. Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Service deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/services/{id}/products:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List the products required by a service
+      description: Returns the service product requirements. Admin, Reception and Mechanic roles.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Service products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      summary: Attach a product requirement to a service
+      description: Adds a product with default quantity. Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceProduct'
+      responses:
+        '201':
+          description: Service product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProductResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/services/{id}/products/{productId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: productId
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: Update a service product requirement
+      description: Updates the required quantity. Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceProduct'
+      responses:
+        '200':
+          description: Service product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Detach a product requirement from a service
+      description: Admin role required.
+      tags:
+        - ShopServices
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Service product removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/employees:
+    get:
+      summary: List employees
+      description: Plain (non-paginated) employee list. Admin and Reception roles.
+      tags:
+        - Employees
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Employees
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmployeeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/work-orders:
+    get:
+      summary: List work orders
+      description: Paginated work orders. Admin, Reception and Mechanic roles. Mechanics receive only their assigned orders.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        '200':
+          description: Paginated work orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkOrderResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a work order
+      description: Creates a work order with at least one service line. Admin and Reception roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrder'
+      responses:
+        '201':
+          description: Work order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/work-orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a work order by id
+      description: Returns the full work order. Mechanics only see assigned orders (else 404).
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Work order found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+    patch:
+      summary: Update a work order
+      description: Partial update. Admin and Reception roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkOrder'
+      responses:
+        '200':
+          description: Work order updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+    delete:
+      summary: Delete a work order
+      description: Admin role required.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Work order deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/work-orders/{id}/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      description: >
+        Allowed transitions are server-enforced: pending -> in_progress|cancelled,
+        in_progress -> done|cancelled, done and cancelled are terminal.
+      summary: Transition the work order status
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionWorkOrderStatus'
+      responses:
+        '200':
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+        '409':
+          description: INVALID_STATUS_TRANSITION
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+
+  /api/work-orders/{id}/payments:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List the payments of a work order
+      description: Plain (non-paginated) payment list. Admin and Reception roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkOrderPaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+    post:
+      summary: Register a payment
+      description: >
+        Registers a payment against the work order remaining balance.
+        Admin and Reception roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrderPayment'
+      responses:
+        '201':
+          description: Payment registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderPaymentResponse'
+        '400':
+          description: WORK_ORDER_OVERPAYMENT (message embeds the remaining balance)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+        '409':
+          description: WORK_ORDER_CANCELLED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+
+  /api/work-orders/{id}/consumptions:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: List the product consumption events of a work order
+      description: Plain (non-paginated) list. Admin, Reception and Mechanic roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Consumption events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConsumptionEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+    post:
+      summary: Register a product consumption event
+      description: >
+        Registers stock usage against a product (`used`, `opened` or
+        `depleted`). Admin, Reception and Mechanic roles.
+      tags:
+        - WorkOrders
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConsumptionEvent'
+      responses:
+        '201':
+          description: Consumption event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumptionEventResponse'
+        '400':
+          description: CONSUMPTION_TYPE_NOT_ALLOWED, CONSUMPTION_QUANTITY_REQUIRED or INSUFFICIENT_STOCK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/sales:
+    get:
+      summary: List sales
+      description: Paginated sales. Admin and Reception roles.
+      tags:
+        - Sales
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: clientId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/SaleStatus'
+        - name: saleNumber
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated sales
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SaleResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a sale
+      description: >
+        Creates a sale with payment method and optional product lines; stock
+        is consumed FIFO at creation. Admin and Reception roles.
+      tags:
+        - Sales
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSale'
+      responses:
+        '201':
+          description: Sale created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleResponse'
+        '400':
+          description: INSUFFICIENT_STOCK or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/sales/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a sale by id
+      description: Admin and Reception roles.
+      tags:
+        - Sales
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Sale found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/sales/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: Cancel a sale
+      description: Restores FIFO stock. Admin role required.
+      tags:
+        - Sales
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Sale cancelled (status becomes cancelled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/cash-closings:
+    get:
+      summary: List registered cash closings
+      description: Paginated closings. Admin role required.
+      tags:
+        - CashClosings
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        '200':
+          description: Paginated closings
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CashClosingResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Close the cash period
+      description: >
+        Closes the open period with a declared cash amount; the server
+        computes difference = declaredCash - expectedCash. Admin
+        and Reception roles.
+      tags:
+        - CashClosings
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCashClosing'
+      responses:
+        '201':
+          description: Period closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashClosingResponse'
+        '400':
+          description: CLOSING_NO_ACTIVITY
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: CLOSING_CONFLICT (another closing starts the same period)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+
+  /api/cash-closings/preview:
+    get:
+      summary: Preview the open cash period
+      description: Aggregates sales and work order payments since the open period start. Admin and Reception roles.
+      tags:
+        - CashClosings
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Period preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClosingPreviewResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/cash-closings/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a cash closing by id
+      description: Admin and Reception roles.
+      tags:
+        - CashClosings
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Closing found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashClosingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
 components:
   schemas:
     CreateProduct:
@@ -591,6 +1814,1069 @@ components:
         statusCode:
           type: integer
 
+    PaginatedMeta:
+      type: object
+      required:
+        - page
+        - limit
+        - total
+
+      description: >
+        Pagination metadata. Backend emits page/limit/total for all paginated
+        lists; the clients/vehicles frontend types historically named the
+        third field totalPages, which is a known drift to reconcile.
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        total:
+          type: integer
+          example: 42
+
+    CreateClient:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Carlos Mendoza
+        phone:
+          type: string
+          maxLength: 50
+          example: '+51 987 654 321'
+        email:
+          type: string
+          format: email
+          maxLength: 100
+          example: client@example.com
+        address:
+          type: string
+          maxLength: 500
+          example: Av. Los Talleres 123, Lima
+        identification:
+          type: string
+          maxLength: 20
+          description: >
+            DNI (exactly 8 digits) or RUC (exactly 11 digits), enforced
+            together with identificationType.
+          example: '12345678'
+        identificationType:
+          type: string
+          enum:
+            - DNI
+            - RUC
+          example: DNI
+
+    UpdateClient:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 50
+        email:
+          type: string
+          format: email
+          maxLength: 100
+        address:
+          type: string
+          maxLength: 500
+        identification:
+          type: string
+          maxLength: 20
+        identificationType:
+          type: string
+          enum:
+            - DNI
+            - RUC
+
+    ClientResponse:
+      type: object
+      required:
+        - id
+        - name
+        - isActive
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+          example: clxyz123abc
+        name:
+          type: string
+          example: Carlos Mendoza
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        identification:
+          type: string
+          nullable: true
+        identificationType:
+          type: string
+          nullable: true
+          enum:
+            - DNI
+            - RUC
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateVehicle:
+      type: object
+      required:
+        - plate
+        - brand
+        - model
+        - clientId
+      properties:
+        plate:
+          type: string
+          description: >
+            Peruvian plate. After normalization (uppercase, spaces and dashes
+            removed) it must match one of: AAA999, A9AAA99, AA9999, EAA999.
+            onError message names 'valid Peruvian plate'.
+          example: ABC-123
+        brand:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Toyota
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Corolla
+        year:
+          type: integer
+          minimum: 1900
+          example: 2019
+        color:
+          type: string
+          maxLength: 50
+          example: Blanco
+        notes:
+          type: string
+          maxLength: 1000
+        clientId:
+          type: string
+          description: cuid of the owner client.
+          example: clxyz123abc
+
+    UpdateVehicle:
+      type: object
+      properties:
+        plate:
+          type: string
+          description: See CreateVehicle.plate.
+        brand:
+          type: string
+          maxLength: 100
+        model:
+          type: string
+          maxLength: 100
+        year:
+          type: integer
+          minimum: 1900
+        color:
+          type: string
+          maxLength: 50
+        notes:
+          type: string
+          maxLength: 1000
+        clientId:
+          type: string
+
+    VehicleResponse:
+      type: object
+      required:
+        - id
+        - plate
+        - brand
+        - model
+        - clientId
+        - isActive
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+        plate:
+          type: string
+          example: ABC-123
+        brand:
+          type: string
+          example: Toyota
+        model:
+          type: string
+          example: Corolla
+        year:
+          type: integer
+          nullable: true
+          example: 2019
+        color:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        clientId:
+          type: string
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateService:
+      type: object
+      required:
+        - code
+        - name
+        - price
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: ALI-001
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: Wheel alignment
+        description:
+          type: string
+          maxLength: 2000
+          example: 3D alignment for sedans
+        price:
+          type: number
+          description: Positive money amount with up to 2 decimals.
+          minimum: 0
+          exclusiveMinimum: true
+          example: 150.0
+        estimatedDuration:
+          type: integer
+          minimum: 1
+          description: Estimated duration in minutes.
+          example: 60
+
+    UpdateService:
+      type: object
+      properties:
+        code:
+          type: string
+          maxLength: 50
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        price:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+        estimatedDuration:
+          type: integer
+          minimum: 1
+
+    ServiceResponse:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - price
+        - isActive
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+        code:
+          type: string
+          example: ALI-001
+        name:
+          type: string
+          example: Wheel alignment
+        description:
+          type: string
+          nullable: true
+        price:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '150.00'
+        estimatedDuration:
+          type: integer
+          nullable: true
+          example: 60
+        isActive:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProductRef:
+      type: object
+      description: Light product projection attached to service requirements.
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        consumptionType:
+          type: string
+          description: Product consumption classification, string as stored.
+
+    ServiceProductResponse:
+      type: object
+      required:
+        - id
+        - serviceId
+        - productId
+        - quantity
+        - product
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+        serviceId:
+          type: string
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+        product:
+          $ref: '#/components/schemas/ProductRef'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateServiceProduct:
+      type: object
+      required:
+        - productId
+      properties:
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+
+    UpdateServiceProduct:
+      type: object
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+
+    EmployeeResponse:
+      type: object
+      required:
+        - id
+        - name
+
+      description: Shape returned by GET /employees (raw select, no DTO wrapper).
+      properties:
+        id:
+          type: string
+          description: cuid
+        name:
+          type: string
+          example: María González
+        specialty:
+          type: string
+          nullable: true
+          example: Electricidad automotriz
+        userId:
+          type: string
+          nullable: true
+
+    WorkOrderStatus:
+      type: string
+      enum:
+        - pending
+        - in_progress
+        - done
+        - cancelled
+
+    WorkOrderPaymentStatus:
+      type: string
+      enum:
+        - pending
+        - partial
+        - paid
+
+    PaymentMethod:
+      type: string
+      enum:
+        - cash
+        - card
+        - transfer
+
+    SaleStatus:
+      type: string
+      enum:
+        - completed
+        - cancelled
+
+    NameRef:
+      type: object
+      description: Light id/name projection used inside nested aggregates.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    WorkOrderServiceLineResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: cuid
+        serviceId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPriceSnapshot:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '150.00'
+        subtotal:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '150.00'
+        service:
+          $ref: '#/components/schemas/ServiceResponse'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkOrderResponse:
+      type: object
+      required:
+        - id
+        - orderNumber
+        - clientId
+        - vehicleId
+        - status
+        - totalAmount
+        - paidAmount
+        - paymentStatus
+        - isActive
+        - services
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+        orderNumber:
+          type: string
+          description: Sequence OC-YYYY-NNNNNN.
+          example: OC-2026-000036
+        clientId:
+          type: string
+        vehicleId:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        totalAmount:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '150.00'
+        paidAmount:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '40.00'
+        paymentStatus:
+          $ref: '#/components/schemas/WorkOrderPaymentStatus'
+        isActive:
+          type: boolean
+        employee:
+          allOf:
+            - description: null when unassigned.
+              $ref: '#/components/schemas/NameRef'
+        branch:
+          allOf:
+            - description: null when unset.
+              $ref: '#/components/schemas/NameRef'
+        client:
+          $ref: '#/components/schemas/NameRef'
+        vehicle:
+          type: object
+          properties:
+            id:
+              type: string
+            plate:
+              type: string
+            brand:
+              type: string
+            model:
+              type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkOrderServiceLineResponse'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkOrderPaymentResponse:
+      type: object
+      required:
+        - id
+        - workOrderId
+        - amount
+        - paymentMethod
+        - paidAt
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+        workOrderId:
+          type: string
+        amount:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '40.00'
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        note:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConsumptionEventResponse:
+      type: object
+      required:
+        - id
+        - workOrderId
+        - productId
+        - product
+        - type
+        - registeredById
+        - registeredBy
+        - createdAt
+
+      properties:
+        id:
+          type: string
+        workOrderId:
+          type: string
+        productId:
+          type: string
+        product:
+          type: object
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            name:
+              type: string
+            consumptionType:
+              type: string
+              enum:
+                - direct
+                - partial
+        type:
+          type: string
+          enum:
+            - used
+            - opened
+            - depleted
+        quantity:
+          type: integer
+          nullable: true
+        registeredById:
+          type: string
+        registeredBy:
+          $ref: '#/components/schemas/NameRef'
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateWorkOrder:
+      type: object
+      required:
+        - clientId
+        - vehicleId
+        - services
+      properties:
+        clientId:
+          type: string
+        vehicleId:
+          type: string
+        employeeId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        description:
+          type: string
+          maxLength: 2000
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        services:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - serviceId
+              - quantity
+            properties:
+              serviceId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+              unitPrice:
+                type: number
+                description: Optional price override; defaults to the service price.
+                minimum: 0
+                exclusiveMinimum: true
+                example: 150.0
+
+    UpdateWorkOrder:
+      type: object
+      properties:
+        clientId:
+          type: string
+        vehicleId:
+          type: string
+        employeeId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        description:
+          type: string
+          maxLength: 2000
+        services:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - serviceId
+              - quantity
+            properties:
+              serviceId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+              unitPrice:
+                type: number
+                minimum: 0
+                exclusiveMinimum: true
+
+    TransitionWorkOrderStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+
+    CreateWorkOrderPayment:
+      type: object
+      required:
+        - amount
+        - paymentMethod
+      properties:
+        amount:
+          type: number
+          description: Positive money amount with up to 2 decimals; must not exceed the remaining balance.
+          minimum: 0
+          exclusiveMinimum: true
+          example: 40.0
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        note:
+          type: string
+          maxLength: 200
+
+    CreateConsumptionEvent:
+      type: object
+      required:
+        - productId
+        - type
+      properties:
+        productId:
+          type: string
+        type:
+          type: string
+          enum:
+            - used
+            - opened
+            - depleted
+        quantity:
+          type: integer
+          minimum: 1
+          description: Required unless type is depleted.
+
+    CreateSale:
+      type: object
+      required:
+        - paymentMethod
+      properties:
+        clientId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        employeeId:
+          type: string
+          nullable: true
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        productLines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - productId
+              - quantity
+            properties:
+              productId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+
+    SaleProductLineResponse:
+      type: object
+      required:
+        - id
+        - productId
+        - quantity
+        - unitPriceSnapshot
+        - subtotal
+        - product
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPriceSnapshot:
+          type: string
+          description: Decimal amount serialized as a string
+        subtotal:
+          type: string
+          description: Decimal amount serialized as a string
+        product:
+          type: object
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            name:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SaleResponse:
+      type: object
+      required:
+        - id
+        - saleNumber
+        - status
+        - paymentMethod
+        - totalAmount
+        - isActive
+        - products
+        - createdAt
+        - updatedAt
+
+      properties:
+        id:
+          type: string
+          description: cuid
+        saleNumber:
+          type: string
+          description: Sequence VTA-YYYY-NNNNNN.
+          example: VTA-2026-000001
+        clientId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        employeeId:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/SaleStatus'
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        totalAmount:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '120.00'
+        isActive:
+          type: boolean
+        client:
+          allOf:
+            - description: null when walk-in.
+              $ref: '#/components/schemas/NameRef'
+        branch:
+          allOf:
+            - description: null when unset.
+              $ref: '#/components/schemas/NameRef'
+        employee:
+          allOf:
+            - description: null when unassigned.
+              $ref: '#/components/schemas/NameRef'
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleProductLineResponse'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ClosingPreviewResponse:
+      type: object
+      required:
+        - expectedCash
+        - expectedCard
+        - expectedTransfer
+        - salesCount
+        - workOrderPaymentsCash
+        - workOrderPaymentsCard
+        - workOrderPaymentsTransfer
+        - workOrderPaymentsCount
+
+      properties:
+        periodStart:
+          type: string
+          format: date-time
+          nullable: true
+          description: null when the shop has no prior closing.
+        expectedCash:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '0.00'
+        expectedCard:
+          type: string
+          example: '0.00'
+        expectedTransfer:
+          type: string
+          example: '0.00'
+        salesCount:
+          type: integer
+        workOrderPaymentsCash:
+          type: string
+        workOrderPaymentsCard:
+          type: string
+        workOrderPaymentsTransfer:
+          type: string
+        workOrderPaymentsCount:
+          type: integer
+
+    CashClosingResponse:
+      type: object
+      required:
+        - id
+        - periodStart
+        - periodEnd
+        - expectedCash
+        - expectedCard
+        - expectedTransfer
+        - declaredCash
+        - difference
+        - salesCount
+        - workOrderPaymentsCash
+        - workOrderPaymentsCard
+        - workOrderPaymentsTransfer
+        - workOrderPaymentsCount
+        - createdAt
+        - closedBy
+
+      properties:
+        id:
+          type: string
+          description: uuid (not cuid) for cash closings.
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        expectedCash:
+          type: string
+        expectedCard:
+          type: string
+        expectedTransfer:
+          type: string
+        declaredCash:
+          type: string
+        difference:
+          type: string
+          description: Server-computed declaredCash - expectedCash.
+        salesCount:
+          type: integer
+        workOrderPaymentsCash:
+          type: string
+        workOrderPaymentsCard:
+          type: string
+        workOrderPaymentsTransfer:
+          type: string
+        workOrderPaymentsCount:
+          type: integer
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        closedBy:
+          $ref: '#/components/schemas/NameRef'
+
+    CreateCashClosing:
+      type: object
+      required:
+        - declaredCash
+      properties:
+        declaredCash:
+          type: string
+          description: >
+            Non-negative decimal string (digits with optional 1-2 decimals)
+            because physical cash is counted as text.
+          pattern: ^\d+(\.\d{1,2})?$
+          example: '150.00'
+        notes:
+          type: string
+
+    BusinessErrorResponse:
+      type: object
+      description: Custom business error envelope raised by domain services.
+      properties:
+        message:
+          type: string
+        errorCode:
+          type: string
+          description: >
+            Known values include CONTRACT-flagged INVALID_STATUS_TRANSITION
+            (409), WORK_ORDER_OVERPAYMENT (400), WORK_ORDER_CANCELLED (409),
+            WORK_ORDER_CLOSED (409), WORK_ORDER_NOT_FOUND (404),
+            CLIENT_NOT_FOUND (404), VEHICLE_NOT_FOUND (404),
+            VEHICLE_CLIENT_MISMATCH (400), SERVICE_NOT_FOUND (404),
+            EMPLOYEE_NOT_FOUND (404), PRODUCT_NOT_FOUND (404),
+            CONSUMPTION_TYPE_NOT_ALLOWED (400),
+            CONSUMPTION_QUANTITY_REQUIRED (400), INSUFFICIENT_STOCK (400),
+            NO_OPEN_CONTAINER (400), CLOSING_NO_ACTIVITY (400),
+            CLOSING_CONFLICT (409).
+
   securitySchemes:
     betterAuthCookie:
       type: apiKey
@@ -599,6 +2885,13 @@ components:
       description: Session cookie set by better-auth after sign-in/sign-up.
 
   responses:
+    BusinessNotFound:
+      description: Resource not found (business error envelope)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BusinessErrorResponse'
+
     BadRequest:
       description: Malformed request
       content:
