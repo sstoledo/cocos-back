@@ -1,0 +1,13 @@
+{
+  "rootDir": ".",
+  "testRegex": ".integration-spec.ts$",
+  "globalSetup": "<rootDir>/integration/global-setup.ts",
+  "globalTeardown": "<rootDir>/integration/global-teardown.ts",
+  "setupFiles": ["<rootDir>/integration/env.ts"],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "testEnvironment": "node",
+  "maxWorkers": 1,
+  "testTimeout": 30000
+}
