@@ -137,6 +137,7 @@ model Product {
   lotItems           LotItem[]
   stockMovements     StockMovement[]
   saleProducts       SaleProduct[]
+  proformaProducts   ProformaProduct[]
   purchaseOrderLines PurchaseOrderLine[]
   serviceProducts    ServiceProduct[]
   consumptionEvents  WorkOrderConsumptionEvent[]
@@ -178,6 +179,7 @@ model Client {
   vehicles           Vehicle[]
   workOrders         WorkOrder[]
   sales              Sale[]
+  proformas          Proforma[]
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
@@ -414,6 +416,7 @@ model Employee {
   deletedAt  DateTime?   @map("deleted_at")
   workOrders WorkOrder[]
   sales      Sale[]
+  proformas  Proforma[]
   createdAt  DateTime    @default(now()) @map("created_at")
   updatedAt  DateTime    @updatedAt @map("updated_at")
 
@@ -430,6 +433,7 @@ model Branch {
   deletedAt  DateTime?   @map("deleted_at")
   workOrders WorkOrder[]
   sales      Sale[]
+  proformas  Proforma[]
   createdAt  DateTime    @default(now()) @map("created_at")
   updatedAt  DateTime    @updatedAt @map("updated_at")
 
@@ -495,6 +499,7 @@ model Sale {
   deletedAt      DateTime?       @map("deleted_at")
   products       SaleProduct[]
   stockMovements StockMovement[]
+  proformas      Proforma[]
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
@@ -531,6 +536,71 @@ model SaleNumberSequence {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("sale_number_sequences")
+}
+
+enum ProformaStatus {
+  draft
+  sent
+  accepted
+  rejected
+  converted
+
+  @@map("proforma_status")
+}
+
+model Proforma {
+  id              String          @id @default(cuid())
+  proformaNumber  String          @unique @map("proforma_number")
+  clientId        String?         @map("client_id")
+  client          Client?         @relation(fields: [clientId], references: [id])
+  branchId        String?         @map("branch_id")
+  branch          Branch?         @relation(fields: [branchId], references: [id])
+  employeeId      String?         @map("employee_id")
+  employee        Employee?       @relation(fields: [employeeId], references: [id])
+  status          ProformaStatus  @default(draft)
+  totalAmount     Decimal         @default(0.00) @map("total_amount") @db.Decimal(10, 2)
+  notes           String?
+  convertedSaleId String?         @unique @map("converted_sale_id")
+  convertedSale   Sale?           @relation(fields: [convertedSaleId], references: [id])
+  isActive        Boolean         @default(true) @map("is_active")
+  deletedAt       DateTime?       @map("deleted_at")
+  products        ProformaProduct[]
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([branchId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("proformas")
+}
+
+model ProformaProduct {
+  id                String   @id @default(cuid())
+  proformaId        String   @map("proforma_id")
+  proforma          Proforma @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+  productId         String   @map("product_id")
+  product           Product  @relation(fields: [productId], references: [id])
+  quantity          Int      @default(1)
+  unitPriceSnapshot Decimal  @map("unit_price_snapshot") @db.Decimal(10, 2)
+  subtotal          Decimal  @db.Decimal(10, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([proformaId, productId])
+  @@map("proforma_products")
+}
+
+model ProformaNumberSequence {
+  id         String   @id @default(cuid())
+  year       Int      @unique
+  lastNumber Int      @default(0) @map("last_number")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("proforma_number_sequences")
 }
 
 enum PurchaseOrderStatus {
