@@ -1816,6 +1816,11 @@ components:
 
     PaginatedMeta:
       type: object
+      required:
+        - page
+        - limit
+        - total
+
       description: >
         Pagination metadata. Backend emits page/limit/total for all paginated
         lists; the clients/vehicles frontend types historically named the
@@ -1896,6 +1901,13 @@ components:
 
     ClientResponse:
       type: object
+      required:
+        - id
+        - name
+        - isActive
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2003,6 +2015,16 @@ components:
 
     VehicleResponse:
       type: object
+      required:
+        - id
+        - plate
+        - brand
+        - model
+        - clientId
+        - isActive
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2097,6 +2119,15 @@ components:
 
     ServiceResponse:
       type: object
+      required:
+        - id
+        - code
+        - name
+        - price
+        - isActive
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2148,6 +2179,15 @@ components:
 
     ServiceProductResponse:
       type: object
+      required:
+        - id
+        - serviceId
+        - productId
+        - quantity
+        - product
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2190,6 +2230,10 @@ components:
 
     EmployeeResponse:
       type: object
+      required:
+        - id
+        - name
+
       description: Shape returned by GET /employees (raw select, no DTO wrapper).
       properties:
         id:
@@ -2273,6 +2317,20 @@ components:
 
     WorkOrderResponse:
       type: object
+      required:
+        - id
+        - orderNumber
+        - clientId
+        - vehicleId
+        - status
+        - totalAmount
+        - paidAmount
+        - paymentStatus
+        - isActive
+        - services
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2340,6 +2398,15 @@ components:
 
     WorkOrderPaymentResponse:
       type: object
+      required:
+        - id
+        - workOrderId
+        - amount
+        - paymentMethod
+        - paidAt
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2366,6 +2433,16 @@ components:
 
     ConsumptionEventResponse:
       type: object
+      required:
+        - id
+        - workOrderId
+        - productId
+        - product
+        - type
+        - registeredById
+        - registeredBy
+        - createdAt
+
       properties:
         id:
           type: string
@@ -2560,6 +2637,16 @@ components:
 
     SaleProductLineResponse:
       type: object
+      required:
+        - id
+        - productId
+        - quantity
+        - unitPriceSnapshot
+        - subtotal
+        - product
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2592,6 +2679,17 @@ components:
 
     SaleResponse:
       type: object
+      required:
+        - id
+        - saleNumber
+        - status
+        - paymentMethod
+        - totalAmount
+        - isActive
+        - products
+        - createdAt
+        - updatedAt
+
       properties:
         id:
           type: string
@@ -2648,6 +2746,16 @@ components:
 
     ClosingPreviewResponse:
       type: object
+      required:
+        - expectedCash
+        - expectedCard
+        - expectedTransfer
+        - salesCount
+        - workOrderPaymentsCash
+        - workOrderPaymentsCard
+        - workOrderPaymentsTransfer
+        - workOrderPaymentsCount
+
       properties:
         periodStart:
           type: string
@@ -2677,6 +2785,23 @@ components:
 
     CashClosingResponse:
       type: object
+      required:
+        - id
+        - periodStart
+        - periodEnd
+        - expectedCash
+        - expectedCard
+        - expectedTransfer
+        - declaredCash
+        - difference
+        - salesCount
+        - workOrderPaymentsCash
+        - workOrderPaymentsCard
+        - workOrderPaymentsTransfer
+        - workOrderPaymentsCount
+        - createdAt
+        - closedBy
+
       properties:
         id:
           type: string
