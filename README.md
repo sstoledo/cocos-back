@@ -1,5 +1,7 @@
 # Cocos Back
 
+[![CI](https://github.com/sstoledo/cocos-back/actions/workflows/ci.yml/badge.svg)](https://github.com/sstoledo/cocos-back/actions/workflows/ci.yml)
+
 NestJS + Prisma + better-auth backend for the Cocos workshop ERP MVP.
 
 ## Stack
