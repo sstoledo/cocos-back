@@ -13,6 +13,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PresentationsModule } from './presentations/presentations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { ProformasModule } from './proformas/proformas.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { SalesModule } from './sales/sales.module';
 import { ServicesModule } from './services/services.module';
@@ -43,6 +44,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     VehiclesModule,
     WorkOrdersModule,
     SalesModule,
+    ProformasModule,
     PurchaseOrdersModule,
     NotificationsModule,
     DashboardModule,
