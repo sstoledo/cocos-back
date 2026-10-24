@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
+import { ConvertProformaDto } from './dto/convert-proforma.dto';
 import { CreateProformaDto } from './dto/create-proforma.dto';
 import { ListProformasQueryDto } from './dto/list-proformas-query.dto';
 import { UpdateProformaStatusDto } from './dto/update-proforma-status.dto';
@@ -49,5 +50,11 @@ export class ProformasController {
   @Roles(RoleName.Admin, RoleName.Reception)
   updateStatus(@Param('id') id: string, @Body() dto: UpdateProformaStatusDto) {
     return this.proformasService.updateStatus(id, dto);
+  }
+
+  @Post(':id/convert-to-sale')
+  @Roles(RoleName.Admin, RoleName.Reception)
+  convertToSale(@Param('id') id: string, @Body() dto: ConvertProformaDto) {
+    return this.proformasService.convertToSale(id, dto);
   }
 }

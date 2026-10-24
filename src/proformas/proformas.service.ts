@@ -7,6 +7,8 @@ import {
 import { Prisma, ProformaStatus } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
+import { SalesService } from '../sales/sales.service';
+import type { ConvertProformaDto } from './dto/convert-proforma.dto';
 import type { CreateProformaDto } from './dto/create-proforma.dto';
 import type { ListProformasQueryDto } from './dto/list-proformas-query.dto';
 import { ProformaResponseDto } from './dto/proforma-response.dto';
@@ -39,7 +41,10 @@ type ResolvedLineItem = {
 
 @Injectable()
 export class ProformasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly salesService: SalesService
+  ) {}
 
   async create(dto: CreateProformaDto) {
     const productLines = dto.productLines ?? [];
@@ -254,6 +259,69 @@ export class ProformasService {
       });
     }
     return this.toResponse(proforma);
+  }
+
+  // Atomic conversion: flips the proforma to `converted` and creates the sale
+  // (numbering + FIFO stock walk) in a single transaction. Any failure —
+  // including INSUFFICIENT_STOCK — rolls everything back and the proforma
+  // stays `accepted`.
+  async convertToSale(id: string, dto: ConvertProformaDto) {
+    const proforma = await this.prisma.proforma.findUnique({
+      where: { id, isActive: true },
+      include: { products: true },
+    });
+
+    if (!proforma) {
+      throw new NotFoundException({
+        message: 'Proforma not found',
+        errorCode: 'PROFORMA_NOT_FOUND',
+      });
+    }
+
+    if (proforma.status !== 'accepted') {
+      throw new ConflictException({
+        message: 'Only accepted proformas can be converted to a sale',
+        errorCode: 'PROFORMA_NOT_ACCEPTED',
+      });
+    }
+
+    const lineItems = proforma.products.map((line) => ({
+      productId: line.productId,
+      quantity: line.quantity,
+      unitPriceSnapshot: new Prisma.Decimal(line.unitPriceSnapshot),
+      subtotal: new Prisma.Decimal(line.subtotal),
+    }));
+
+    return this.prisma.$transaction(async (tx) => {
+      // Flip-first guard: a concurrent conversion loses here (count === 0)
+      // and the whole transaction rolls back before any sale is created.
+      const guard = await tx.proforma.updateMany({
+        where: { id, status: 'accepted' },
+        data: { status: 'converted' },
+      });
+
+      if (guard.count === 0) {
+        throw new ConflictException({
+          message: 'Only accepted proformas can be converted to a sale',
+          errorCode: 'PROFORMA_NOT_ACCEPTED',
+        });
+      }
+
+      const sale = await this.salesService.createSaleInTransaction(tx, {
+        clientId: proforma.clientId,
+        branchId: proforma.branchId,
+        employeeId: proforma.employeeId,
+        paymentMethod: dto.paymentMethod,
+        lineItems,
+      });
+
+      await tx.proforma.update({
+        where: { id },
+        data: { convertedSaleId: sale.id },
+      });
+
+      return sale;
+    });
   }
 
   private ensureLinesValid(

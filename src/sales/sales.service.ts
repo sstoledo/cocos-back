@@ -19,6 +19,13 @@ const SALE_INCLUDE = {
   products: { include: { product: true } },
 } as const;
 
+export type SaleLineInput = {
+  productId: string;
+  quantity: number;
+  unitPriceSnapshot: Prisma.Decimal;
+  subtotal: Prisma.Decimal;
+};
+
 @Injectable()
 export class SalesService {
   constructor(
@@ -47,82 +54,106 @@ export class SalesService {
 
     const productLineItems = await this.resolveProductLineItems(productLines);
 
-    const totalAmount = productLineItems.reduce(
+    return this.prisma.$transaction((tx) =>
+      this.createSaleInTransaction(tx, {
+        clientId: dto.clientId ?? null,
+        branchId: dto.branchId ?? null,
+        employeeId: dto.employeeId ?? null,
+        paymentMethod: dto.paymentMethod,
+        lineItems: productLineItems,
+      })
+    );
+  }
+
+  // Sale-creation core that runs inside a caller-owned transaction. Shared by
+  // direct sales and by the proforma convert-to-sale flow, so FIFO semantics
+  // and numbering stay identical in both paths.
+  async createSaleInTransaction(
+    tx: Prisma.TransactionClient,
+    params: {
+      clientId: string | null;
+      branchId: string | null;
+      employeeId: string | null;
+      paymentMethod: CreateSaleDto['paymentMethod'];
+      lineItems: SaleLineInput[];
+    }
+  ) {
+    const { lineItems } = params;
+
+    const totalAmount = lineItems.reduce(
       (total, line) => total.add(line.subtotal),
       new Prisma.Decimal(0)
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      const saleNumber = await this.generateSaleNumber(tx);
+    const saleNumber = await this.generateSaleNumber(tx);
 
-      const shortages: Array<{
-        productId: string;
-        requested: number;
-        available: number;
-      }> = [];
+    const shortages: Array<{
+      productId: string;
+      requested: number;
+      available: number;
+    }> = [];
 
-      for (const line of productLineItems) {
-        const available = await this.stockService.availableStock(
-          tx,
-          line.productId
-        );
+    for (const line of lineItems) {
+      const available = await this.stockService.availableStock(
+        tx,
+        line.productId
+      );
 
-        if (available < line.quantity) {
-          shortages.push({
-            productId: line.productId,
-            requested: line.quantity,
-            available,
-          });
-        }
-      }
-
-      if (shortages.length > 0) {
-        throw new ConflictException({
-          message: 'Insufficient stock to complete the sale',
-          errorCode: 'INSUFFICIENT_STOCK',
-          details: shortages,
+      if (available < line.quantity) {
+        shortages.push({
+          productId: line.productId,
+          requested: line.quantity,
+          available,
         });
       }
+    }
 
-      const sale = await tx.sale.create({
-        data: {
-          saleNumber,
-          clientId: dto.clientId ?? null,
-          branchId: dto.branchId ?? null,
-          employeeId: dto.employeeId ?? null,
-          paymentMethod: dto.paymentMethod,
-          totalAmount,
-          products: {
-            create: productLineItems.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPriceSnapshot: item.unitPriceSnapshot,
-              subtotal: item.subtotal,
-            })),
-          },
-        },
-        include: SALE_INCLUDE,
+    if (shortages.length > 0) {
+      throw new ConflictException({
+        message: 'Insufficient stock to complete the sale',
+        errorCode: 'INSUFFICIENT_STOCK',
+        details: shortages,
       });
+    }
 
-      // FIFO consumption via StockService: single shared implementation of
-      // the guarded walk (same semantics as manual stock usage in work
-      // orders).
-      for (const line of productLineItems) {
-        await this.stockService.consumeFifo(
-          tx,
-          line.productId,
-          line.quantity,
-          {
-            movementType: 'sale',
-            reason: `Sale ${saleNumber}`,
-            saleId: sale.id,
-          },
-          'Insufficient stock to complete the sale'
-        );
-      }
-
-      return this.toResponse(sale);
+    const sale = await tx.sale.create({
+      data: {
+        saleNumber,
+        clientId: params.clientId,
+        branchId: params.branchId,
+        employeeId: params.employeeId,
+        paymentMethod: params.paymentMethod,
+        totalAmount,
+        products: {
+          create: lineItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPriceSnapshot: item.unitPriceSnapshot,
+            subtotal: item.subtotal,
+          })),
+        },
+      },
+      include: SALE_INCLUDE,
     });
+
+    // FIFO consumption via StockService: single shared implementation of
+    // the guarded walk (same semantics as manual stock usage in work
+    // orders).
+    for (const line of lineItems) {
+      await this.stockService.consumeFifo(
+        tx,
+        line.productId,
+        line.quantity,
+        {
+          movementType: 'sale',
+          reason: `Sale ${saleNumber}`,
+          saleId: sale.id,
+        },
+        'Insufficient stock to complete the sale'
+      );
+    }
+
+    return this.toResponse(sale);
   }
 
   async cancelSale(id: string) {
