@@ -120,6 +120,12 @@ export class EmbeddingsService {
   }
 
   private extractEmbedding(payload: unknown): number[] {
+    // REST embedContent responses (real API) wrap one vector in `embedding`;
+    // keep the batch `embeddings` array as the legacy fallback shape.
+    if (this.isRecord(payload) && this.isRecord(payload.embedding)) {
+      return this.validateEmbeddingValues(payload.embedding.values);
+    }
+
     const embeddings = this.extractEmbeddings(payload);
     if (embeddings.length !== 1) {
       throw new Error(
@@ -148,20 +154,28 @@ export class EmbeddingsService {
     }
 
     return payload.embeddings.map((entry) => {
-      if (
-        !this.isRecord(entry) ||
-        !Array.isArray(entry.values) ||
-        entry.values.length !== EMBEDDING_DIMENSIONS ||
-        !entry.values.every(
-          (value) => typeof value === 'number' && Number.isFinite(value)
-        )
-      ) {
+      if (!this.isRecord(entry)) {
         throw new Error(
           'Gemini embedding response did not contain a valid embedding'
         );
       }
-      return entry.values;
+      return this.validateEmbeddingValues(entry.values);
     });
+  }
+
+  private validateEmbeddingValues(values: unknown): number[] {
+    if (
+      !Array.isArray(values) ||
+      values.length !== EMBEDDING_DIMENSIONS ||
+      !values.every(
+        (value) => typeof value === 'number' && Number.isFinite(value)
+      )
+    ) {
+      throw new Error(
+        'Gemini embedding response did not contain a valid embedding'
+      );
+    }
+    return values;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

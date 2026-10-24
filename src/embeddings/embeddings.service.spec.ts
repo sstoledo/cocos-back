@@ -50,7 +50,8 @@ describe('EmbeddingsService', () => {
 
   it('embeds a document with the exact request shape and extracts values', async () => {
     const values = vector(0.25);
-    fetchSpy.mockResolvedValue(jsonResponse({ embeddings: [{ values }] }));
+    // Real REST embedContent response: { "embedding": { "values": [...] } }.
+    fetchSpy.mockResolvedValue(jsonResponse({ embedding: { values } }));
 
     await expect(createService().embedDocument(null, 'hello')).resolves.toEqual(
       values
@@ -71,7 +72,7 @@ describe('EmbeddingsService', () => {
 
   it('uses the asymmetric query prompt prefix', async () => {
     const values = vector(0.5);
-    fetchSpy.mockResolvedValue(jsonResponse({ embeddings: [{ values }] }));
+    fetchSpy.mockResolvedValue(jsonResponse({ embedding: { values } }));
 
     await expect(createService().embedQuery('pico y espiga')).resolves.toEqual(
       values
@@ -183,13 +184,23 @@ describe('EmbeddingsService', () => {
 
   it('uses a custom model without changing the fixed vector dimensions', async () => {
     fetchSpy.mockResolvedValue(
-      jsonResponse({ embeddings: [{ values: vector(0.1) }] })
+      jsonResponse({ embedding: { values: vector(0.1) } })
     );
 
     await createService('test-key', 'custom-embedding-model').embedQuery('oil');
 
     expect(fetchSpy.mock.calls[0][0]).toBe(
       'https://generativelanguage.googleapis.com/v1beta/models/custom-embedding-model:embedContent'
+    );
+  });
+
+  it('rejects a single response with the wrong vector length', async () => {
+    fetchSpy.mockResolvedValue(
+      jsonResponse({ embedding: { values: [0.1, 0.2] } })
+    );
+
+    await expect(createService().embedQuery('oil')).rejects.toThrow(
+      'Gemini embedding response did not contain a valid embedding'
     );
   });
 });
