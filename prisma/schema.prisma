@@ -128,6 +128,10 @@ model Product {
   isActive           Boolean                     @default(true) @map("is_active")
   deletedAt          DateTime?                   @map("deleted_at")
   consumptionType    ConsumptionType             @default(direct) @map("consumption_type")
+  // 768-dim Gemini embedding (gemini-embedding-2, output_dimensionality
+  // 768). pgvector cannot be typed beyond the raw SQL layer in Prisma, so
+  // reads/writes of embeddings go through $queryRaw/$executeRaw (F6).
+  embedding          Unsupported("vector(768)")? @map("embedding")
   presentationId     String                      @map("presentation_id")
   presentation       Presentation                @relation(fields: [presentationId], references: [id])
   brandId            String                      @map("brand_id")
