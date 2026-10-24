@@ -11,7 +11,9 @@ import { DB_URL_FILE } from './db-url-file';
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 module.exports = async () => {
-  const started = await new PostgreSqlContainer('postgres:16-alpine')
+  // pgvector image: the embedding migration runs `CREATE EXTENSION vector`,
+  // which the stock postgres image cannot serve in CI.
+  const started = await new PostgreSqlContainer('pgvector/pgvector:pg16')
     .withDatabase('cocos_test')
     .withUsername('postgres')
     .withPassword('postgres')
