@@ -1,6 +1,7 @@
 import { ParseFilePipe } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RoleName } from '@prisma/client';
+import { ListSemanticProductsQueryDto } from './dto/list-semantic-products-query.dto';
 import { ProductsController } from './products.controller';
 import type { ProductsService } from './products.service';
 
@@ -25,6 +26,8 @@ describe('ProductsController', () => {
     productsService = {
       findAll: jest.fn(),
       findOne: jest.fn(),
+      searchSemantic: jest.fn(),
+      reindexEmbeddings: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
@@ -61,6 +64,32 @@ describe('ProductsController', () => {
         ])
       );
       expect(roles).toHaveLength(6);
+    });
+
+    it('allows all authenticated roles for semantic search', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        ProductsController.prototype.searchSemantic,
+        ProductsController,
+      ]);
+      expect(roles).toEqual(
+        expect.arrayContaining([
+          RoleName.Admin,
+          RoleName.Reception,
+          RoleName.Mechanic,
+          RoleName.Warehouse,
+          RoleName.Purchasing,
+          RoleName.ReadOnly,
+        ])
+      );
+      expect(roles).toHaveLength(6);
+    });
+
+    it('restricts embedding reindex to Admin', () => {
+      const roles = reflector.getAllAndOverride<RoleName[]>('roles', [
+        ProductsController.prototype.reindexEmbeddings,
+        ProductsController,
+      ]);
+      expect(roles).toEqual([RoleName.Admin]);
     });
 
     it('allows all authenticated roles for findOne', () => {
@@ -167,6 +196,39 @@ describe('ProductsController', () => {
 
       expect(productsService.findAll).toHaveBeenCalledWith({});
       expect(result).toEqual(paginatedResult);
+    });
+  });
+
+  describe('searchSemantic', () => {
+    it('returns semantic matches from the service', async () => {
+      const query = {
+        q: 'pico y espiga',
+        limit: 5,
+        isActive: true,
+      } as ListSemanticProductsQueryDto;
+      const matches = { data: [{ id: 'product-1', name: 'Engine oil' }] };
+      (
+        productsService.searchSemantic as unknown as jest.Mock
+      ).mockResolvedValue(matches);
+
+      const result = await controller.searchSemantic(query);
+
+      expect(productsService.searchSemantic).toHaveBeenCalledWith(query);
+      expect(result).toEqual(matches);
+    });
+  });
+
+  describe('reindexEmbeddings', () => {
+    it('returns the reindex summary from the service', async () => {
+      const summary = { updated: 3, failed: 1, totalMissing: 4 };
+      (
+        productsService.reindexEmbeddings as unknown as jest.Mock
+      ).mockResolvedValue(summary);
+
+      const result = await controller.reindexEmbeddings();
+
+      expect(productsService.reindexEmbeddings).toHaveBeenCalledWith();
+      expect(result).toEqual(summary);
     });
   });
 
