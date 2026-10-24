@@ -19,6 +19,7 @@ import { RoleName } from '@prisma/client';
 import { Roles, RolesGuard } from '../auth';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { ListSemanticProductsQueryDto } from './dto/list-semantic-products-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 
@@ -38,6 +39,20 @@ export class ProductsController {
   )
   findAll(@Query() queryDto: ListProductsQueryDto) {
     return this.productsService.findAll(queryDto);
+  }
+
+  // This static route must remain before @Get(':id') to avoid route shadowing.
+  @Get('search/semantic')
+  @Roles(
+    RoleName.Admin,
+    RoleName.Reception,
+    RoleName.Mechanic,
+    RoleName.Warehouse,
+    RoleName.Purchasing,
+    RoleName.ReadOnly
+  )
+  searchSemantic(@Query() queryDto: ListSemanticProductsQueryDto) {
+    return this.productsService.searchSemantic(queryDto);
   }
 
   @Get(':id')
@@ -73,6 +88,12 @@ export class ProductsController {
     image: Express.Multer.File | undefined
   ) {
     return this.productsService.create(dto, image);
+  }
+
+  @Post('reindex-embeddings')
+  @Roles(RoleName.Admin)
+  reindexEmbeddings() {
+    return this.productsService.reindexEmbeddings();
   }
 
   @Patch(':id')

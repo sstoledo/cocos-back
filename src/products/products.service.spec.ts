@@ -1,10 +1,21 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { EMBEDDING_DIMENSIONS } from '../embeddings';
+import type { EmbeddingsService } from '../embeddings';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { UploadService, UploadedImage } from '../upload';
 import { ProductResponseDto } from './dto/product-response.dto';
-import { ProductsService } from './products.service';
+import { ReindexEmbeddingsResponseDto } from './dto/reindex-response.dto';
+import {
+  ProductsService,
+  composeProductDocument,
+  pgVectorLiteral,
+} from './products.service';
 
 const uploadedImage: UploadedImage = {
   url: 'https://res.cloudinary.com/demo/image/upload/products/abc',
@@ -47,6 +58,7 @@ describe('ProductsService', () => {
   let prisma: PrismaService;
   let uploadService: UploadService;
   let configService: ConfigService;
+  let embeddingsService: EmbeddingsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -62,6 +74,11 @@ describe('ProductsService', () => {
       lotItem: {
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn(),
+      $transaction: jest.fn((queries: Promise<unknown>[]) =>
+        Promise.all(queries)
+      ),
     } as unknown as PrismaService;
     uploadService = {
       uploadImage: jest.fn().mockResolvedValue(uploadedImage),
@@ -70,7 +87,18 @@ describe('ProductsService', () => {
     configService = {
       get: jest.fn().mockReturnValue(cloudName),
     } as unknown as ConfigService;
-    service = new ProductsService(prisma, uploadService, configService);
+    embeddingsService = {
+      isConfigured: jest.fn().mockReturnValue(false),
+      embedDocument: jest.fn(),
+      embedQuery: jest.fn(),
+      embedDocuments: jest.fn(),
+    } as unknown as EmbeddingsService;
+    service = new ProductsService(
+      prisma,
+      uploadService,
+      configService,
+      embeddingsService
+    );
   });
 
   describe('findAll', () => {
@@ -232,6 +260,125 @@ describe('ProductsService', () => {
     });
   });
 
+  describe('semantic embedding helpers', () => {
+    it('composes deterministic document content from catalog fields', () => {
+      expect(
+        composeProductDocument({
+          name: 'Engine oil',
+          description: 'Synthetic engine oil',
+          code: 'OIL-001',
+          brand: { name: 'Mobil' },
+          category: { name: 'Lubricantes' },
+        })
+      ).toBe(
+        'Synthetic engine oil\ncode: OIL-001\nmeta brand: Mobil\nmeta category: Lubricantes'
+      );
+    });
+
+    it('formats vectors as pgvector text literals', () => {
+      expect(pgVectorLiteral([1, 2.5, -3])).toBe('[1,2.5,-3]');
+    });
+  });
+
+  describe('searchSemantic', () => {
+    it('embeds the query, searches by cosine distance, and preserves rank order', async () => {
+      const values = Array.from(
+        { length: EMBEDDING_DIMENSIONS },
+        (_, index) => index / EMBEDDING_DIMENSIONS
+      );
+      const vectorText = pgVectorLiteral(values);
+      const products = [
+        {
+          id: 'product-1',
+          name: 'Engine oil',
+          code: 'OIL-001',
+          price: '30.00',
+          ...baseRelations,
+        },
+        {
+          id: 'product-2',
+          name: 'Oil filter',
+          code: 'FILTER-001',
+          price: '12.00',
+          ...baseRelations,
+        },
+      ];
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedQuery as jest.Mock).mockResolvedValue(values);
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue([
+        { id: 'product-2' },
+        { id: 'product-1' },
+      ]);
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
+        products
+      );
+
+      const result = await service.searchSemantic({
+        q: 'pico y espiga',
+        limit: 2,
+        isActive: true,
+      });
+
+      expect(embeddingsService.embedQuery).toHaveBeenCalledWith(
+        'pico y espiga'
+      );
+      const rawCall = (prisma.$queryRaw as unknown as jest.Mock).mock.calls[0];
+      expect(rawCall[0].join('')).toContain('embedding <=>');
+      expect(rawCall[0].join('')).toContain('"is_active" =');
+      expect(rawCall.slice(1)).toEqual([true, vectorText, vectorText, 2]);
+      expect(prisma.product.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['product-2', 'product-1'] } },
+        ...productInclude,
+      });
+      expect(result.data.map((product) => product.id)).toEqual([
+        'product-2',
+        'product-1',
+      ]);
+      expect(result.data[0]).toBeInstanceOf(ProductResponseDto);
+    });
+
+    it('throws 503 with the business error code when embeddings are not configured', async () => {
+      await expect(
+        service.searchSemantic({ q: 'engine oil' })
+      ).rejects.toMatchObject({
+        response: { errorCode: 'EMBEDDINGS_NOT_CONFIGURED' },
+        status: 503,
+      });
+      expect(embeddingsService.embedQuery).not.toHaveBeenCalled();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty data envelope without hydrating when there are no matches', async () => {
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedQuery as jest.Mock).mockResolvedValue(
+        Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0.1)
+      );
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue([]);
+
+      await expect(
+        service.searchSemantic({ q: 'missing product' })
+      ).resolves.toEqual({ data: [] });
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+      const rawCall = (prisma.$queryRaw as unknown as jest.Mock).mock.calls[0];
+      expect(rawCall[1]).toBe(true);
+      expect(rawCall[4]).toBe(10);
+    });
+
+    it('supports explicitly searching inactive products', async () => {
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedQuery as jest.Mock).mockResolvedValue(
+        Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0.1)
+      );
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue([]);
+
+      await service.searchSemantic({ q: 'archived oil', isActive: false });
+
+      expect((prisma.$queryRaw as unknown as jest.Mock).mock.calls[0][1]).toBe(
+        false
+      );
+    });
+  });
+
   describe('create', () => {
     it('creates a product without image and returns the new catalog fields', async () => {
       const dto = { ...baseDto };
@@ -252,6 +399,76 @@ describe('ProductsService', () => {
       expect(prisma.product.create).toHaveBeenCalledWith({ data: dto });
       expect(result).toMatchObject(created);
       expect(result).toBeInstanceOf(ProductResponseDto);
+    });
+
+    it('backfills the embedding after a successful create', async () => {
+      const dto = { ...baseDto };
+      const created = {
+        id: 'product-1',
+        ...dto,
+        price: '30.00',
+        taxRate: '21.00',
+        ...baseRelations,
+      };
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedDocument as jest.Mock).mockResolvedValue([
+        0.1, 0.2, 0.3,
+      ]);
+      (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+
+      const result = await service.create(dto as never);
+
+      expect(prisma.product.findUnique).toHaveBeenCalledWith({
+        where: { id: 'product-1' },
+        ...productInclude,
+      });
+      expect(embeddingsService.embedDocument).toHaveBeenCalledWith(
+        'Engine oil',
+        'Synthetic engine oil\ncode: OIL-001\nmeta brand: Mobil\nmeta category: Lubricantes'
+      );
+      const rawCall = (prisma.$executeRaw as unknown as jest.Mock).mock
+        .calls[0];
+      expect(rawCall[0].join(' ').replace(/\s+/g, ' ')).toContain(
+        'UPDATE "products" SET embedding'
+      );
+      expect(rawCall.slice(1)).toEqual(['[0.1,0.2,0.3]', 'product-1']);
+      expect(result.id).toBe('product-1');
+    });
+
+    it('keeps create successful when embedding generation fails', async () => {
+      const dto = { ...baseDto };
+      const created = {
+        id: 'product-1',
+        ...dto,
+        price: '30.00',
+        taxRate: '21.00',
+        ...baseRelations,
+      };
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedDocument as jest.Mock).mockRejectedValue(
+        new Error('provider unavailable')
+      );
+      (prisma.product.create as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        created
+      );
+      const loggerSpy = jest
+        .spyOn(console, 'warn')
+        .mockImplementation(() => undefined);
+
+      const result = await service.create(dto as never);
+
+      expect(result.id).toBe('product-1');
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      expect(loggerSpy).toHaveBeenCalled();
+      loggerSpy.mockRestore();
     });
 
     it('uploads image and persists image public id when image is provided', async () => {
@@ -347,6 +564,102 @@ describe('ProductsService', () => {
       });
       expect(result).toMatchObject(updated);
       expect(result).toBeInstanceOf(ProductResponseDto);
+    });
+
+    it('re-embeds only after embedding-relevant fields change', async () => {
+      const existing = {
+        id: 'product-1',
+        name: 'Engine oil',
+        description: 'Old description',
+        code: 'OIL-001',
+        brandId: 'brand-1',
+        categoryId: 'cat-1',
+        price: '30.00',
+        ...baseRelations,
+      };
+      const dto = { description: 'New description' };
+      const updated = { ...existing, ...dto };
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedDocument as jest.Mock).mockResolvedValue([
+        0.1, 0.2,
+      ]);
+      (prisma.product.findUnique as unknown as jest.Mock)
+        .mockResolvedValueOnce(existing)
+        .mockResolvedValueOnce(updated);
+      (prisma.product.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
+
+      const result = await service.update('product-1', dto as never);
+
+      expect(embeddingsService.embedDocument).toHaveBeenCalledWith(
+        'Engine oil',
+        'New description\ncode: OIL-001\nmeta brand: Mobil\nmeta category: Lubricantes'
+      );
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(result).toMatchObject(updated);
+    });
+
+    it('does not re-embed for identical or non-semantic field values', async () => {
+      const existing = {
+        id: 'product-1',
+        name: 'Engine oil',
+        description: 'Synthetic engine oil',
+        code: 'OIL-001',
+        brandId: 'brand-1',
+        categoryId: 'cat-1',
+        isActive: true,
+        price: '30.00',
+        ...baseRelations,
+      };
+      const dto = { name: 'Engine oil', isActive: false };
+      const updated = { ...existing, ...dto };
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (prisma.product.findUnique as unknown as jest.Mock).mockResolvedValue(
+        existing
+      );
+      (prisma.product.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
+
+      await service.update('product-1', dto as never);
+
+      expect(embeddingsService.embedDocument).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      expect(prisma.product.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps update successful when re-embedding fails', async () => {
+      const existing = {
+        id: 'product-1',
+        name: 'Engine oil',
+        description: 'Old description',
+        code: 'OIL-001',
+        price: '30.00',
+        ...baseRelations,
+      };
+      const dto = { name: 'Premium engine oil' };
+      const updated = { ...existing, ...dto };
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (embeddingsService.embedDocument as jest.Mock).mockRejectedValue(
+        new Error('provider unavailable')
+      );
+      (prisma.product.findUnique as unknown as jest.Mock)
+        .mockResolvedValueOnce(existing)
+        .mockResolvedValueOnce(updated);
+      (prisma.product.update as unknown as jest.Mock).mockResolvedValue(
+        updated
+      );
+      const loggerSpy = jest
+        .spyOn(console, 'warn')
+        .mockImplementation(() => undefined);
+
+      const result = await service.update('product-1', dto as never);
+
+      expect(result).toMatchObject(updated);
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      expect(loggerSpy).toHaveBeenCalled();
+      loggerSpy.mockRestore();
     });
 
     it('uploads new image, updates record, and deletes old image', async () => {
@@ -458,6 +771,116 @@ describe('ProductsService', () => {
       expect(uploadService.deleteImage).toHaveBeenCalledWith('products/old');
       expect(loggerSpy).toHaveBeenCalled();
       loggerSpy.mockRestore();
+    });
+  });
+
+  describe('reindexEmbeddings', () => {
+    it('backfills only missing embeddings in transactional batches', async () => {
+      const products = [
+        {
+          id: 'product-1',
+          name: 'Engine oil',
+          description: 'Synthetic engine oil',
+          code: 'OIL-001',
+          price: '30.00',
+          ...baseRelations,
+        },
+        {
+          id: 'product-2',
+          name: 'Oil filter',
+          description: null,
+          code: 'FILTER-001',
+          price: '12.00',
+          ...baseRelations,
+        },
+      ];
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue(
+        products.map(({ id }) => ({ id }))
+      );
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
+        products
+      );
+      (embeddingsService.embedDocuments as jest.Mock).mockResolvedValue([
+        { id: 'product-1', values: [0.1, 0.2] },
+        { id: 'product-2', values: [0.3, 0.4] },
+      ]);
+
+      const result = await service.reindexEmbeddings();
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['product-1', 'product-2'] } },
+        ...productInclude,
+      });
+      expect(embeddingsService.embedDocuments).toHaveBeenCalledWith([
+        {
+          id: 'product-1',
+          title: 'Engine oil',
+          content:
+            'Synthetic engine oil\ncode: OIL-001\nmeta brand: Mobil\nmeta category: Lubricantes',
+        },
+        {
+          id: 'product-2',
+          title: 'Oil filter',
+          content:
+            '\ncode: FILTER-001\nmeta brand: Mobil\nmeta category: Lubricantes',
+        },
+      ]);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ updated: 2, failed: 0, totalMissing: 2 });
+      expect(result).toBeInstanceOf(ReindexEmbeddingsResponseDto);
+    });
+
+    it('reports failed rows without aborting the reindex response', async () => {
+      const products = [
+        {
+          id: 'product-1',
+          name: 'Engine oil',
+          description: null,
+          code: 'OIL-001',
+          price: '30.00',
+          ...baseRelations,
+        },
+      ];
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue([
+        { id: 'product-1' },
+      ]);
+      (prisma.product.findMany as unknown as jest.Mock).mockResolvedValue(
+        products
+      );
+      (embeddingsService.embedDocuments as jest.Mock).mockRejectedValue(
+        new Error('provider unavailable')
+      );
+      const loggerSpy = jest
+        .spyOn(console, 'warn')
+        .mockImplementation(() => undefined);
+
+      const result = await service.reindexEmbeddings();
+
+      expect(result).toMatchObject({ updated: 0, failed: 1, totalMissing: 1 });
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      expect(loggerSpy).toHaveBeenCalled();
+      loggerSpy.mockRestore();
+    });
+
+    it('returns zeros when no embeddings are missing', async () => {
+      (embeddingsService.isConfigured as jest.Mock).mockReturnValue(true);
+      (prisma.$queryRaw as unknown as jest.Mock).mockResolvedValue([]);
+
+      const result = await service.reindexEmbeddings();
+
+      expect(result).toMatchObject({ updated: 0, failed: 0, totalMissing: 0 });
+      expect(embeddingsService.embedDocuments).not.toHaveBeenCalled();
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+    });
+
+    it('throws ServiceUnavailableException when embeddings are not configured', async () => {
+      await expect(service.reindexEmbeddings()).rejects.toThrow(
+        ServiceUnavailableException
+      );
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
   });
 

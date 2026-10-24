@@ -298,6 +298,88 @@ paths:
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
 
+  /api/products/search/semantic:
+    get:
+      summary: Search products semantically
+      description: Returns products ranked by cosine similarity to a natural-language query.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 200
+          description: Natural-language product search query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+        - name: isActive
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Semantically ranked products
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: Embeddings are not configured (EMBEDDINGS_NOT_CONFIGURED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+
+  /api/products/reindex-embeddings:
+    post:
+      summary: Backfill missing product embeddings
+      description: Generates embeddings for every product whose embedding is NULL. Admin role required.
+      tags:
+        - Products
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Embedding backfill summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReindexEmbeddingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: Embeddings are not configured (EMBEDDINGS_NOT_CONFIGURED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+
   /api/products/{id}:
     get:
       summary: Get a product by ID
@@ -2004,6 +2086,23 @@ components:
           type: string
           format: date-time
 
+    ReindexEmbeddingsResponse:
+      type: object
+      required:
+        - updated
+        - failed
+        - totalMissing
+      properties:
+        updated:
+          type: integer
+          description: Number of rows backfilled successfully
+        failed:
+          type: integer
+          description: Number of missing rows that could not be backfilled
+        totalMissing:
+          type: integer
+          description: Total rows with a NULL embedding before reindexing
+
     Role:
       type: object
       properties:
@@ -3330,7 +3429,7 @@ components:
             CONSUMPTION_TYPE_NOT_ALLOWED (400),
             CONSUMPTION_QUANTITY_REQUIRED (400), INSUFFICIENT_STOCK (400),
             NO_OPEN_CONTAINER (400), CLOSING_NO_ACTIVITY (400),
-            CLOSING_CONFLICT (409).
+            CLOSING_CONFLICT (409), EMBEDDINGS_NOT_CONFIGURED (503).
 
   securitySchemes:
     betterAuthCookie:
