@@ -27,6 +27,8 @@ tags:
     description: Work orders, payments and status transitions
   - name: Sales
     description: Point-of-sale sales
+  - name: Proformas
+    description: Quotations (draft/sent/accepted/rejected) converted into sales
   - name: CashClosings
     description: Cash register period closings
   - name: Employees
@@ -1495,6 +1497,252 @@ paths:
         '404':
           $ref: '#/components/responses/BusinessNotFound'
 
+  /api/proformas:
+    get:
+      summary: List proformas
+      description: Paginated proformas. Admin and Reception roles.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: clientId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ProformaStatus'
+        - name: proformaNumber
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated proformas
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProformaResponse'
+                  meta:
+                    $ref: '#/components/schemas/PaginatedMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      summary: Create a proforma
+      description: >
+        Creates a quotation with optional client (walk-ins allowed) and at
+        least one product line; the catalog unit price is snapshotted
+        server-side. Never touches stock.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProforma'
+      responses:
+        '201':
+          description: Proforma created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProformaResponse'
+        '400':
+          description: Validation or domain error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/proformas/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get a proforma by id
+      description: Admin and Reception roles.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      responses:
+        '200':
+          description: Proforma found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProformaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+    patch:
+      summary: Update a draft proforma
+      description: Only draft proformas can be updated. Admin and Reception roles.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProforma'
+      responses:
+        '200':
+          description: Proforma updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProformaResponse'
+        '400':
+          description: PROFORMA_NOT_DRAFT or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/proformas/{id}/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      summary: Change proforma status
+      description: >
+        Explicit state machine: draft -> sent -> accepted|rejected. converted
+        is reached exclusively through the convert-to-sale endpoint. Admin and
+        Reception roles.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProformaStatus'
+      responses:
+        '200':
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProformaResponse'
+        '400':
+          description: INVALID_STATUS_TRANSITION or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
+  /api/proformas/{id}/convert-to-sale:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Convert an accepted proforma into a sale
+      description: >
+        Atomic conversion: flips status accepted -> converted, reuses the sale
+        creation core in one transaction (sequence number, FIFO stock walk)
+        and links convertedSaleId. Rolls back on INSUFFICIENT_STOCK or guard
+        races. Admin and Reception roles.
+      tags:
+        - Proformas
+      security:
+        - betterAuthCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvertProforma'
+      responses:
+        '200':
+          description: Proforma converted (status converted, convertedSaleId set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProformaResponse'
+        '400':
+          description: PROFORMA_NOT_ACCEPTED or INSUFFICIENT_STOCK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/BusinessNotFound'
+
   /api/cash-closings:
     get:
       summary: List registered cash closings
@@ -2743,6 +2991,213 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    ProformaStatus:
+      type: string
+      enum:
+        - draft
+        - sent
+        - accepted
+        - rejected
+        - converted
+
+    CreateProforma:
+      type: object
+      required:
+        - productLines
+      properties:
+        clientId:
+          type: string
+          nullable: true
+          description: omitted for walk-in proformas
+        branchId:
+          type: string
+          nullable: true
+        employeeId:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          maxLength: 500
+        productLines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - productId
+              - quantity
+            properties:
+              productId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+
+    UpdateProforma:
+      type: object
+      description: Only draft proformas may be updated.
+      properties:
+        clientId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        employeeId:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          maxLength: 500
+        productLines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - productId
+              - quantity
+            properties:
+              productId:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+
+    UpdateProformaStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/ProformaStatus'
+
+    ConvertProforma:
+      type: object
+      required:
+        - paymentMethod
+      properties:
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+
+    ProformaProductLineResponse:
+      type: object
+      required:
+        - id
+        - productId
+        - quantity
+        - unitPriceSnapshot
+        - subtotal
+        - product
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unitPriceSnapshot:
+          type: string
+          description: Catalog price copied at creation, decimal as string
+        subtotal:
+          type: string
+          description: Decimal amount serialized as a string
+        product:
+          type: object
+          required:
+            - id
+            - code
+            - name
+            - price
+          properties:
+            id:
+              type: string
+            code:
+              type: string
+            name:
+              type: string
+            description:
+              type: string
+              nullable: true
+            price:
+              type: string
+              description: Decimal amount serialized as a string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProformaResponse:
+      type: object
+      required:
+        - id
+        - proformaNumber
+        - status
+        - totalAmount
+        - isActive
+        - products
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: cuid
+        proformaNumber:
+          type: string
+          description: Sequence PRO-YYYY-NNNNNN.
+          example: PRO-2026-000001
+        clientId:
+          type: string
+          nullable: true
+        branchId:
+          type: string
+          nullable: true
+        employeeId:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ProformaStatus'
+        totalAmount:
+          type: string
+          description: Decimal amount serialized as a string
+          example: '120.00'
+        notes:
+          type: string
+          nullable: true
+        convertedSaleId:
+          type: string
+          nullable: true
+          description: Set when the proforma status is converted.
+        isActive:
+          type: boolean
+        client:
+          allOf:
+            - description: null when walk-in.
+              $ref: '#/components/schemas/NameRef'
+        branch:
+          allOf:
+            - description: null when unset.
+              $ref: '#/components/schemas/NameRef'
+        employee:
+          allOf:
+            - description: null when unassigned.
+              $ref: '#/components/schemas/NameRef'
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProformaProductLineResponse'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     ClosingPreviewResponse:
       type: object
