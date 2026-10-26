@@ -161,8 +161,9 @@ model Supplier {
   address        String?
   isActive       Boolean         @default(true)
   deletedAt      DateTime?
-  lots           Lot[]
-  purchaseOrders PurchaseOrder[]
+  lots             Lot[]
+  purchaseOrders   PurchaseOrder[]
+  receiptDocuments ReceiptDocument[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -259,6 +260,7 @@ model Lot {
   receivedAt      DateTime       @default(now())
   notes           String?
   items           LotItem[]
+  receiptDocument ReceiptDocument?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -282,6 +284,42 @@ model LotItem {
   @@index([lotId])
   @@index([productId])
   @@map("lot_items")
+}
+
+enum ReceiptDocumentStatus {
+  pending
+  confirmed
+  discarded
+
+  @@map("receipt_document_status")
+}
+
+model ReceiptDocument {
+  id              String                @id @default(cuid())
+  status          ReceiptDocumentStatus @default(pending) @map("status")
+  mimeType        String                @map("mime_type")
+  fileName        String                @map("file_name")
+  filePublicId    String                @map("file_public_id")
+  fileUrl         String                @map("file_url")
+  // Structured extraction shown in the review screen; ocrPayload keeps the
+  // raw provider response for audit/reprocessing.
+  extracted       Json?
+  ocrModel        String?               @map("ocr_model")
+  ocrPayload      Json?                 @map("ocr_payload")
+  lotId           String?               @unique @map("lot_id")
+  lot             Lot?                  @relation(fields: [lotId], references: [id])
+  purchaseOrderId String?               @map("purchase_order_id")
+  purchaseOrder   PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
+  supplierId      String?               @map("supplier_id")
+  supplier        Supplier?             @relation(fields: [supplierId], references: [id])
+  confirmedAt     DateTime?             @map("confirmed_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([purchaseOrderId])
+  @@map("receipt_documents")
 }
 
 model StockMovement {
@@ -631,6 +669,7 @@ model PurchaseOrder {
   lines               PurchaseOrderLine[]
   stockMovements      StockMovement[]
   lots                Lot[]
+  receiptDocuments    ReceiptDocument[]
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
