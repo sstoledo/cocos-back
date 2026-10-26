@@ -60,9 +60,12 @@ export interface ReceiptOcrResult {
 }
 
 export class ReceiptOcrError extends Error {
-  constructor(message: string) {
+  readonly timedOut: boolean;
+
+  constructor(message: string, timedOut = false) {
     super(message);
     this.name = 'ReceiptOcrError';
+    this.timedOut = timedOut;
   }
 }
 
@@ -98,12 +101,17 @@ export class ReceiptOcrService {
     buffer: Buffer,
     mimeType: string
   ): Promise<ReceiptOcrResult> {
-    // One silent retry: Gemini intermittently 503s; the manual retry
-    // endpoint remains for persistent failures.
+    // One silent retry for quick provider failures (e.g. transient 503).
+    // A timed-out request already consumed the whole window, so it is
+    // surfaced typed immediately instead of doubling the wait; the manual
+    // retry endpoint remains for persistent failures.
     let payload: unknown;
     try {
       payload = await this.request(buffer, mimeType);
-    } catch {
+    } catch (error) {
+      if (error instanceof ReceiptOcrError && error.timedOut) {
+        throw error;
+      }
       payload = await this.request(buffer, mimeType);
     }
     return {
@@ -149,10 +157,12 @@ export class ReceiptOcrService {
         }
       );
     } catch (error) {
+      const timedOut = error instanceof Error && error.name === 'TimeoutError';
       throw new ReceiptOcrError(
-        `Gemini OCR request failed or timed out: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+        `Gemini OCR request ${
+          timedOut ? 'timed out' : 'failed'
+        }: ${error instanceof Error ? error.message : String(error)}`,
+        timedOut
       );
     }
 

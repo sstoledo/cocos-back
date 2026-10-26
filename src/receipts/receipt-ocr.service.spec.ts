@@ -272,5 +272,8 @@ describe('ReceiptOcrService', () => {
     await expect(
       createFastTimeoutService().extract(Buffer.from('receipt'), 'image/png')
     ).rejects.toThrow('timed out');
+    // A timed-out request already consumed the whole window; retrying
+    // would double the wait instead of helping.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
