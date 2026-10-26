@@ -15,6 +15,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { ProformasModule } from './proformas/proformas.module';
 import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { ReceiptsModule } from './receipts/receipts.module';
 import { SalesModule } from './sales/sales.module';
 import { ServicesModule } from './services/services.module';
 import { StockModule } from './stock';
@@ -46,6 +47,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     SalesModule,
     ProformasModule,
     PurchaseOrdersModule,
+    ReceiptsModule,
     NotificationsModule,
     DashboardModule,
     CashClosingsModule,
