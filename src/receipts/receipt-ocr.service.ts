@@ -4,6 +4,10 @@ import { ConfigService } from '@nestjs/config';
 // This model affects extraction quality only; it has no stored-vector coupling.
 export const DEFAULT_GEMINI_OCR_MODEL = 'gemini-3.8-flash';
 
+// Extraction is expected in seconds; a hung provider must not hold the
+// upload response for minutes (the retry path covers persistent failures).
+const RECEIPT_OCR_TIMEOUT_MS = 60_000;
+
 const GEMINI_API_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -66,12 +70,20 @@ export class ReceiptOcrError extends Error {
 export class ReceiptOcrService {
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly timeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') ?? '';
     this.model =
       this.configService.get<string>('GEMINI_OCR_MODEL') ??
       DEFAULT_GEMINI_OCR_MODEL;
+    const parsedTimeout = Number(
+      this.configService.get<string>('GEMINI_OCR_TIMEOUT_MS')
+    );
+    this.timeoutMs =
+      Number.isFinite(parsedTimeout) && parsedTimeout > 0
+        ? parsedTimeout
+        : RECEIPT_OCR_TIMEOUT_MS;
   }
 
   isConfigured(): boolean {
@@ -86,7 +98,14 @@ export class ReceiptOcrService {
     buffer: Buffer,
     mimeType: string
   ): Promise<ReceiptOcrResult> {
-    const payload = await this.request(buffer, mimeType);
+    // One silent retry: Gemini intermittently 503s; the manual retry
+    // endpoint remains for persistent failures.
+    let payload: unknown;
+    try {
+      payload = await this.request(buffer, mimeType);
+    } catch {
+      payload = await this.request(buffer, mimeType);
+    }
     return {
       extraction: this.parseExtraction(payload),
       payload,
@@ -96,35 +115,46 @@ export class ReceiptOcrService {
 
   private async request(buffer: Buffer, mimeType: string): Promise<unknown> {
     this.ensureConfigured();
-    const response = await fetch(
-      `${GEMINI_API_BASE_URL}/${this.model}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': this.apiKey,
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: buffer.toString('base64'),
-                  },
-                },
-                { text: EXTRACTION_PROMPT },
-              ],
-            },
-          ],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: RESPONSE_SCHEMA,
+    let response: Response;
+    try {
+      response = await fetch(
+        `${GEMINI_API_BASE_URL}/${this.model}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.apiKey,
           },
-        }),
-      }
-    );
+          // A hung provider request must not block the upload response.
+          signal: AbortSignal.timeout(this.timeoutMs),
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: buffer.toString('base64'),
+                    },
+                  },
+                  { text: EXTRACTION_PROMPT },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: RESPONSE_SCHEMA,
+            },
+          }),
+        }
+      );
+    } catch (error) {
+      throw new ReceiptOcrError(
+        `Gemini OCR request failed or timed out: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
 
     if (!response.ok) {
       const details = await response.text();

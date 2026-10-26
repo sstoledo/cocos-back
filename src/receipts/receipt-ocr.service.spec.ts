@@ -38,6 +38,18 @@ describe('ReceiptOcrService', () => {
     return new ReceiptOcrService(config);
   }
 
+  function createFastTimeoutService(apiKey = 'secret') {
+    const config = {
+      get: jest.fn((key: string) => {
+        if (key === 'GEMINI_API_KEY') return apiKey;
+        if (key === 'GEMINI_OCR_MODEL') return undefined;
+        if (key === 'GEMINI_OCR_TIMEOUT_MS') return '10';
+        return undefined;
+      }),
+    } as unknown as ConfigService;
+    return new ReceiptOcrService(config);
+  }
+
   function mockGeminiText(text: string, split = false) {
     const parts = split
       ? text.match(/.{1,8}/g)?.map((part) => ({ text: part }))
@@ -219,5 +231,46 @@ describe('ReceiptOcrService', () => {
     await expect(
       createService().extract(Buffer.from('receipt'), 'application/pdf')
     ).rejects.toBeInstanceOf(ReceiptOcrError);
+  });
+
+  it('retries once when Gemini transiently fails and then succeeds', async () => {
+    const ok = {
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: JSON.stringify(extraction) }] } },
+        ],
+      }),
+    };
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        text: jest.fn().mockResolvedValue('overloaded'),
+      } as unknown as Response)
+      .mockResolvedValueOnce(ok as unknown as Response);
+
+    await expect(
+      createService().extract(Buffer.from('receipt'), 'image/png')
+    ).resolves.toMatchObject({ supplierName: 'Supplier SA' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts hung Gemini requests and fails typed', async () => {
+    fetchMock.mockImplementation(
+      (_url: string | URL, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(
+              Object.assign(new Error('aborted'), { name: 'TimeoutError' })
+            )
+          );
+        })
+    );
+
+    await expect(
+      createFastTimeoutService().extract(Buffer.from('receipt'), 'image/png')
+    ).rejects.toThrow('timed out');
   });
 });
