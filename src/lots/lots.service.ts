@@ -15,11 +15,15 @@ export class LotsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(queryDto: ListLotsQueryDto) {
-    const { page = 1, limit = 10, q } = queryDto;
+    const { page = 1, limit = 10, q, supplierId } = queryDto;
     const where: Prisma.LotWhereInput = {};
 
     if (q !== undefined) {
       where.lotNumber = { contains: q, mode: 'insensitive' };
+    }
+
+    if (supplierId !== undefined) {
+      where.supplierId = supplierId;
     }
 
     const [data, total] = await Promise.all([
