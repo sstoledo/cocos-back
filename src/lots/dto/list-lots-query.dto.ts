@@ -17,5 +17,10 @@ export class ListLotsQueryDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   q?: string;
 }

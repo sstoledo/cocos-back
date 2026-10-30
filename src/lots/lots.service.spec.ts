@@ -32,6 +32,27 @@ describe('LotsService', () => {
   });
 
   describe('findAll', () => {
+    it('filters lots by supplier when supplierId is provided', async () => {
+      (prisma.lot.findMany as unknown as jest.Mock).mockResolvedValue([]);
+      (prisma.lot.count as unknown as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({ supplierId: 'supplier-1' });
+
+      expect(prisma.lot.findMany).toHaveBeenCalledWith({
+        where: { supplierId: 'supplier-1' },
+        orderBy: { receivedAt: 'desc' },
+        skip: 0,
+        take: 10,
+        include: {
+          supplier: true,
+          items: { include: { product: true } },
+        },
+      });
+      expect(prisma.lot.count).toHaveBeenCalledWith({
+        where: { supplierId: 'supplier-1' },
+      });
+    });
+
     it('returns all lots ordered by receivedAt desc with supplier and items with pagination', async () => {
       const lots = [
         {
