@@ -510,6 +510,21 @@ model WorkOrderNumberSequence {
   @@map("work_order_number_sequences")
 }
 
+// Singleton row holding the fiscal identity of the issuer (SUNAT Fase 0).
+// Fiscal serie/correlativo counters are assigned at emission time (Fase 2).
+model CompanySettings {
+  id            String   @id @default(cuid())
+  ruc           String?
+  legalName     String?  @map("legal_name")
+  address       String?
+  facturaSeries String   @default("F001") @map("factura_series")
+  boletaSeries  String   @default("B001") @map("boleta_series")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("company_settings")
+}
+
 enum SaleStatus {
   completed
   cancelled
