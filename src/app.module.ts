@@ -20,6 +20,7 @@ import { SalesModule } from './sales/sales.module';
 import { ServicesModule } from './services/services.module';
 import { SettingsModule } from './settings/settings.module';
 import { StockModule } from './stock';
+import { SunatModule } from './sunat/sunat.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
@@ -40,6 +41,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     CategoriesModule,
     ClientsModule,
     SettingsModule,
+    SunatModule,
     HealthModule,
     LotsModule,
     StockModule,
