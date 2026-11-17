@@ -113,6 +113,19 @@ export class SaleResponseDto {
   @Expose()
   isActive: boolean;
 
+  // SUNAT fiscal fields (Fase 0/2). Null when the sale has not been emitted.
+  @Expose()
+  documentType: 'factura' | 'boleta' | null;
+
+  @Expose()
+  fiscalSeries: string | null;
+
+  @Expose()
+  fiscalNumber: number | null;
+
+  @Expose()
+  sunatStatus: 'pending' | 'accepted' | 'rejected';
+
   @Expose()
   @Type(() => ClientSummaryDto)
   client: ClientSummaryDto | null;
