@@ -1,109 +1,83 @@
-import {
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Validate,
-  validate,
-} from 'class-validator';
+import type { ValidationArguments } from 'class-validator';
 import { IsValidIdentification } from './identification.validator';
 
-class TestCreateClientDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
+const validator = new IsValidIdentification();
+
+function validate(value: {
   identification?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['DNI', 'RUC'])
   identificationType?: string;
-
-  @Validate(IsValidIdentification, ['identification', 'identificationType'])
-  readonly identificationValidation?: unknown;
+}): boolean {
+  return validator.validate(undefined, {
+    object: value,
+  } as unknown as ValidationArguments);
 }
 
 describe('IsValidIdentification', () => {
-  it('passes for a valid 8-digit DNI', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '12345678';
-    dto.identificationType = 'DNI';
+  describe('DNI', () => {
+    it('accepts an 8-digit DNI', () => {
+      expect(
+        validate({ identification: '12345678', identificationType: 'DNI' })
+      ).toBe(true);
+    });
 
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(0);
-  });
-
-  it('passes for a valid 11-digit RUC', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '12345678901';
-    dto.identificationType = 'RUC';
-
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(0);
-  });
-
-  it('fails when DNI does not have 8 digits', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '123';
-    dto.identificationType = 'DNI';
-
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0].constraints).toMatchObject({
-      IsValidIdentification: 'DNI must be exactly 8 digits',
+    it('rejects a DNI with fewer or more than 8 digits', () => {
+      expect(
+        validate({ identification: '1234567', identificationType: 'DNI' })
+      ).toBe(false);
+      expect(
+        validate({ identification: '123456789', identificationType: 'DNI' })
+      ).toBe(false);
     });
   });
 
-  it('fails when RUC does not have 11 digits', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '12345678';
-    dto.identificationType = 'RUC';
+  describe('RUC', () => {
+    it('accepts an 11-digit RUC with a valid check digit', () => {
+      expect(
+        validate({ identification: '20100070970', identificationType: 'RUC' })
+      ).toBe(true);
+      expect(
+        validate({ identification: '10456789019', identificationType: 'RUC' })
+      ).toBe(true);
+    });
 
-    const errors = await validate(dto);
+    it('rejects an 11-digit RUC whose check digit is invalid', () => {
+      expect(
+        validate({ identification: '20100070971', identificationType: 'RUC' })
+      ).toBe(false);
+      expect(
+        validate({ identification: '12345678901', identificationType: 'RUC' })
+      ).toBe(false);
+    });
 
-    expect(errors).toHaveLength(1);
-    expect(errors[0].constraints).toMatchObject({
-      IsValidIdentification: 'RUC must be exactly 11 digits',
+    it('rejects an 11-digit RUC with an invalid prefix', () => {
+      expect(
+        validate({ identification: '99123456789', identificationType: 'RUC' })
+      ).toBe(false);
+    });
+
+    it('rejects an 11-digit RUC with non-digit characters', () => {
+      expect(
+        validate({ identification: '2010007097a', identificationType: 'RUC' })
+      ).toBe(false);
     });
   });
 
-  it('fails when identification is provided but type is missing', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '12345678';
+  describe('optional values', () => {
+    it('accepts when both identification and identificationType are absent', () => {
+      expect(validate({})).toBe(true);
+    });
 
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0].constraints).toMatchObject({
-      IsValidIdentification:
-        'identificationType is required when identification is provided',
+    it('rejects when only one of the two is provided', () => {
+      expect(validate({ identification: '12345678' })).toBe(false);
+      expect(validate({ identificationType: 'DNI' })).toBe(false);
     });
   });
 
-  it('passes when both identification and type are missing', async () => {
-    const dto = new TestCreateClientDto();
-
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(0);
-  });
-
-  it('fails for an unsupported identification type', async () => {
-    const dto = new TestCreateClientDto();
-    dto.identification = '12345678';
-    dto.identificationType = 'PASSPORT' as 'DNI';
-
-    const errors = await validate(dto);
-
-    expect(errors).toHaveLength(2);
-    const identificationError = errors.find(
-      (error) => error.property === 'identificationValidation'
-    );
-    expect(identificationError?.constraints).toMatchObject({
-      IsValidIdentification: 'identificationType must be DNI or RUC',
+  describe('unknown type', () => {
+    it('rejects an unsupported identification type', () => {
+      expect(
+        validate({ identification: '12345678', identificationType: 'PASSPORT' })
+      ).toBe(false);
     });
   });
 });

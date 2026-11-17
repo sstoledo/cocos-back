@@ -18,6 +18,7 @@ import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
 import { ReceiptsModule } from './receipts/receipts.module';
 import { SalesModule } from './sales/sales.module';
 import { ServicesModule } from './services/services.module';
+import { SettingsModule } from './settings/settings.module';
 import { StockModule } from './stock';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
@@ -38,6 +39,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     BrandsModule,
     CategoriesModule,
     ClientsModule,
+    SettingsModule,
     HealthModule,
     LotsModule,
     StockModule,
