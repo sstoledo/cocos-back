@@ -525,6 +525,21 @@ model CompanySettings {
   @@map("company_settings")
 }
 
+enum FiscalDocumentType {
+  factura
+  boleta
+
+  @@map("fiscal_document_type")
+}
+
+enum SunatEmissionStatus {
+  pending
+  accepted
+  rejected
+
+  @@map("sunat_emission_status")
+}
+
 enum SaleStatus {
   completed
   cancelled
@@ -551,6 +566,12 @@ model Sale {
   employee       Employee?       @relation(fields: [employeeId], references: [id])
   status         SaleStatus      @default(completed)
   paymentMethod  PaymentMethod   @map("payment_method")
+  // Fiscal fields (SUNAT Fase 0). Serie/correlativo are assigned at emission
+  // time (Fase 2); null here means the sale has not been emitted to SUNAT.
+  documentType   FiscalDocumentType?
+  fiscalSeries   String?             @map("fiscal_series")
+  fiscalNumber   Int?                @map("fiscal_number")
+  sunatStatus    SunatEmissionStatus @default(pending) @map("sunat_status")
   totalAmount    Decimal         @default(0.00) @map("total_amount") @db.Decimal(10, 2)
   isActive       Boolean         @default(true) @map("is_active")
   deletedAt      DateTime?       @map("deleted_at")
