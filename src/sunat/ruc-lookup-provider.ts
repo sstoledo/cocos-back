@@ -7,6 +7,12 @@ export type RucLookupResult = {
 };
 
 /**
+ * Nest DI token for the SUNAT padrón source. Lives here (not in the module)
+ * to avoid a circular import between the module and the service.
+ */
+export const RUC_LOOKUP_PROVIDER = 'RucLookupProvider';
+
+/**
  * Source of SUNAT padrón data. Swappable so a different provider (or the
  * official SUNAT endpoint) can replace ApiPeru without touching consumers.
  */

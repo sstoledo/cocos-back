@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { RucLookupProvider, RucLookupResult } from './ruc-lookup-provider';
-import { RUC_LOOKUP_PROVIDER } from './sunat.module';
+import { RUC_LOOKUP_PROVIDER } from './ruc-lookup-provider';
 
 @Injectable()
 export class SunatService {
