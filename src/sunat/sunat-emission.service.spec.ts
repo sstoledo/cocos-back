@@ -128,7 +128,7 @@ describe('SunatEmissionService', () => {
     });
 
     expect(billClient.sendBill).toHaveBeenCalledWith(
-      'B001-1.xml.zip',
+      '20131312955-03-B001-1.zip',
       expect.anything()
     );
 
@@ -165,7 +165,8 @@ describe('SunatEmissionService', () => {
 
     const sentZip = billClient.sendBill.mock.calls[0][1] as Buffer;
     const zip = await JSZip.loadAsync(sentZip);
-    const xml = (await zip.file('B001-1.xml')?.async('string')) ?? '';
+    const xml =
+      (await zip.file('20131312955-03-B001-1.xml')?.async('string')) ?? '';
 
     expect(xml).toContain('<ds:Signature');
     expect(xml).toContain('<cbc:ID>B001-1</cbc:ID>');

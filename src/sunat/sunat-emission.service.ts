@@ -108,12 +108,15 @@ export class SunatEmissionService {
     invoice.correlativo = correlativo;
 
     const xml = signInvoiceXml(buildInvoiceXml(invoice), certPem, keyPem);
-    const zip = await zipInvoice(`${usedSerie}-${correlativo}.xml`, xml);
 
-    const { cdrZip } = await this.billClient.sendBill(
-      `${usedSerie}-${correlativo}.xml.zip`,
-      zip
-    );
+    // SUNAT requires the ZIP and the XML inside it to be named
+    // <RUC>-<tipo>-<serie>-<correlativo>, per the Manual del Programador
+    // (e.g. 20100066603-01-F001-1.ZIP). Anything else is rejected.
+    const fileName = `${settings.ruc}-${invoice.documentType}-${usedSerie}-${correlativo}`;
+
+    const zip = await zipInvoice(`${fileName}.xml`, xml);
+
+    const { cdrZip } = await this.billClient.sendBill(`${fileName}.zip`, zip);
 
     const unzipped = await unzipCdr(cdrZip);
     const cdr = parseCdr(unzipped.xml);
