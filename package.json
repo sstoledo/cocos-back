@@ -48,8 +48,11 @@
     "class-validator": "0.14.4",
     "cloudinary": "2.10.0",
     "dotenv": "18.0.8",
+    "fast-xml-parser": "5.12.1",
+    "jszip": "3.10.2",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2"
+    "rxjs": "7.8.2",
+    "xml-crypto": "6.4.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

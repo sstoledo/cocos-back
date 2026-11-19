@@ -510,6 +510,16 @@ model WorkOrderNumberSequence {
   @@map("work_order_number_sequences")
 }
 
+// One row per fiscal serie (F001/B001). Mirrors SaleNumberSequence but keyed
+// by serie, per SUNAT rules: the correlativo restarts per serie, not per year.
+model FiscalNumberSequence {
+  id         String @id @default(cuid())
+  serie      String @unique
+  lastNumber Int    @default(0) @map("last_number")
+
+  @@map("fiscal_number_sequences")
+}
+
 // Singleton row holding the fiscal identity of the issuer (SUNAT Fase 0).
 // Fiscal serie/correlativo counters are assigned at emission time (Fase 2).
 model CompanySettings {
@@ -517,6 +527,9 @@ model CompanySettings {
   ruc           String?
   legalName     String?  @map("legal_name")
   address       String?
+  /// INEI 6-digit ubigeo of the fiscal domicile, validated against the catalog.
+  /// Department, province and district are derived from it, never stored.
+  ubigeo        String?
   facturaSeries String   @default("F001") @map("factura_series")
   boletaSeries  String   @default("B001") @map("boleta_series")
   createdAt     DateTime @default(now()) @map("created_at")

@@ -103,5 +103,41 @@ describe('SettingsService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prisma.companySettings.update).not.toHaveBeenCalled();
     });
+
+    it('saves a ubigeo that exists in the INEI catalog', async () => {
+      prisma.companySettings.findFirst.mockResolvedValue(existingRow);
+      prisma.companySettings.update.mockResolvedValue({
+        ...existingRow,
+        ubigeo: '150122',
+      });
+
+      await service.updateCompanySettings({ ubigeo: '150122' });
+
+      expect(prisma.companySettings.update).toHaveBeenCalledWith({
+        where: { id: existingRow.id },
+        data: { ubigeo: '150122' },
+      });
+    });
+
+    it('rejects a ubigeo that is not in the catalog', async () => {
+      prisma.companySettings.findFirst.mockResolvedValue(existingRow);
+
+      await expect(
+        service.updateCompanySettings({ ubigeo: '999999' })
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.companySettings.update).not.toHaveBeenCalled();
+    });
+
+    it('clears the ubigeo when an empty string is sent', async () => {
+      prisma.companySettings.findFirst.mockResolvedValue(existingRow);
+      prisma.companySettings.update.mockResolvedValue(existingRow);
+
+      await service.updateCompanySettings({ ubigeo: '' });
+
+      expect(prisma.companySettings.update).toHaveBeenCalledWith({
+        where: { id: existingRow.id },
+        data: { ubigeo: null },
+      });
+    });
   });
 });
