@@ -111,7 +111,7 @@ describe('SunatEmissionService', () => {
 
     const service = buildService(prisma, billClient, {
       SUNAT_BILL_SERVICE_URL:
-        'https://e-factura-test.sunat.gob.pe/ol-ti-itcpfegem/billService',
+        'https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService',
       SUNAT_SOL_USER: 'RUC20131312955MODDATOS',
       SUNAT_SOL_PASSWORD: 'sol',
       SUNAT_CERT_PATH: CERT_PATH,

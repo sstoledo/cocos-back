@@ -6,17 +6,18 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { XMLParser } from 'fast-xml-parser';
 
-const BILL_SERVICE_NAMESPACE =
-  'http://service.sunat.gob.pe/bill/fecore/services/ws/billconsultservice';
+/**
+ * Namespace of the `billService` operation elements, as declared by the
+ * service's WSDL (`soap:address` at
+ * https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService?wsdl). Not to be
+ * confused with the namespace of the comprobante-consulta service.
+ */
+const BILL_SERVICE_NAMESPACE = 'http://service.sunat.gob.pe';
+
+/** SOAP action declared by the WSDL for `sendBill`. */
+const SEND_BILL_SOAP_ACTION = 'urn:sendBill';
 
 const REQUEST_TIMEOUT_MS = 30_000;
-
-/**
- * Default matches SUNAT's beta/qa endpoint; production is configured via env
- * once the company passes homologación.
- */
-const DEFAULT_BILL_SERVICE_URL =
-  'https://e-factura-test.sunat.gob.pe/ol-ti-itcpfegem/billService';
 
 const envelope = (
   fileName: string,
@@ -69,7 +70,7 @@ export class SunatBillClient {
         method: 'POST',
         headers: {
           'Content-Type': 'text/xml; charset=utf-8',
-          SOAPAction: '',
+          SOAPAction: SEND_BILL_SOAP_ACTION,
         },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         body: envelope(fileName, zip.toString('base64'), user, password),

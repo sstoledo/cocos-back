@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { zipInvoice } from './cpe-package';
 import { SunatBillClient } from './sunat-bill-client';
 
 const cdrZipB64 = 'Q0RSLVpJUA=='; // "CDR-ZIP"
+
+const BETA_URL = 'https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService';
 
 describe('zipInvoice', () => {
   it('zips the XML under its file name', async () => {
@@ -39,8 +43,7 @@ describe('SunatBillClient', () => {
     });
 
     const client = buildClient({
-      SUNAT_BILL_SERVICE_URL:
-        'https://e-factura-test.sunat.gob.pe/ol-ti-itcpfegem/billService',
+      SUNAT_BILL_SERVICE_URL: BETA_URL,
       SUNAT_SOL_USER: 'RUC20131312955MODDATOS',
       SUNAT_SOL_PASSWORD: 'sol-pass',
     });
@@ -50,17 +53,18 @@ describe('SunatBillClient', () => {
 
     expect(cdr.cdrZip.toString('utf8')).toBe('CDR-ZIP');
     const call = (globalThis.fetch as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe(
-      'https://e-factura-test.sunat.gob.pe/ol-ti-itcpfegem/billService'
-    );
+    expect(call[0]).toBe(BETA_URL);
 
     const body = call[1].body as string;
     expect(body).toContain('sendBill');
+    expect(body).toContain('xmlns:ser="http://service.sunat.gob.pe"');
+    expect(body).not.toContain('billconsultservice');
     expect(body).toContain('RUC20131312955MODDATOS');
     expect(body).toContain('sol-pass');
     expect(body).toContain('F001-1.xml.zip');
     expect(body).toContain(zip.toString('base64'));
     expect(call[1].headers['Content-Type']).toBe('text/xml; charset=utf-8');
+    expect(call[1].headers.SOAPAction).toBe('urn:sendBill');
   });
 
   it('throws ServiceUnavailable when billService is not configured', async () => {
@@ -105,5 +109,14 @@ describe('SunatBillClient', () => {
     await expect(
       client.sendBill('F001-1.xml.zip', Buffer.from('zip'))
     ).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe('.env.template', () => {
+  it("points SUNAT_BILL_SERVICE_URL at SUNAT's live beta endpoint", () => {
+    const template = readFileSync(join(process.cwd(), '.env.template'), 'utf8');
+
+    expect(template).toContain(`SUNAT_BILL_SERVICE_URL=${BETA_URL}`);
+    expect(template).not.toContain('e-factura-test.sunat.gob.pe');
   });
 });
