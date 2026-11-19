@@ -61,7 +61,24 @@ describe('buildInvoiceXml', () => {
     const supplier = doc.Invoice.AccountingSupplierParty.Party;
     expect(supplier.PartyIdentification.ID).toBe('20131312955');
     expect(supplier.PartyName.Name).toBe('TALLER SUPERINTENDENCIA SAC');
-    expect(supplier.PostalAddress.Line).toBe('AV. GARCILASO DE LA VEGA 1472');
+    expect(supplier.PostalAddress.StreetName).toBe(
+      'AV. GARCILASO DE LA VEGA 1472'
+    );
+  });
+
+  it('keeps cbc:Note right after InvoiceTypeCode, as the schema requires', () => {
+    const xml = buildInvoiceXml(factura);
+
+    const noteAt = xml.indexOf('<cbc:Note');
+    expect(noteAt).toBeGreaterThan(xml.indexOf('<cbc:InvoiceTypeCode>'));
+    expect(noteAt).toBeLessThan(xml.indexOf('<cbc:DocumentCurrencyCode>'));
+  });
+
+  it('leaves ext:ExtensionContent without attributes for the signer', () => {
+    const xml = buildInvoiceXml(factura);
+
+    expect(xml).toContain('<ext:ExtensionContent/>');
+    expect(xml).not.toContain('<ext:ExtensionContent id=');
   });
 
   it('identifies the buyer with its SUNAT document type', () => {

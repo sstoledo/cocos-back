@@ -86,7 +86,7 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
   <ext:UBLExtensions>
     <ext:UBLExtension>
-      <ext:ExtensionContent id="SignST"/>
+      <ext:ExtensionContent/>
     </ext:UBLExtension>
   </ext:UBLExtensions>
   <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
@@ -94,6 +94,7 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
   <cbc:ID>${invoice.serie}-${invoice.correlativo}</cbc:ID>
   <cbc:IssueDate>${invoice.issueDate}</cbc:IssueDate>
   <cbc:InvoiceTypeCode>${invoice.documentType}</cbc:InvoiceTypeCode>
+  <cbc:Note languageLocaleID="1000">${montoEnLetras(total)}</cbc:Note>
   <cbc:DocumentCurrencyCode>${invoice.currency}</cbc:DocumentCurrencyCode>
   <cac:Signature>
     <cbc:ID>SignST</cbc:ID>
@@ -120,7 +121,7 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
         <cbc:Name>${escapeXml(invoice.issuer.razonSocial)}</cbc:Name>
       </cac:PartyName>
       <cac:PostalAddress>
-        <cbc:Line>${escapeXml(invoice.issuer.address ?? '')}</cbc:Line>
+        <cbc:StreetName>${escapeXml(invoice.issuer.address ?? '')}</cbc:StreetName>
         <cbc:CountrySubentity>PERU</cbc:CountrySubentity>
         <cac:Country>
           <cbc:IdentificationCode>PE</cbc:IdentificationCode>
@@ -152,6 +153,5 @@ ${taxSubtotalXml(totalBase, totalIgv)}
     <cbc:PayableAmount currencyID="PEN">${money(total)}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 ${linesXml}
-  <cbc:Note languageLocaleID="1000">${montoEnLetras(total)}</cbc:Note>
 </Invoice>`;
 }

@@ -29,12 +29,17 @@ export function signInvoiceXml(
     xpath: "//*[local-name(.)='Invoice']",
     transforms: [ENVELOPED, EXC_C14N],
     digestAlgorithm: SHA256,
-    uri: '',
+    // The UBL Invoice root allows no attributes, so the reference must be the
+    // empty URI (the whole document) instead of a generated Id.
+    isEmptyUri: true,
     inclusiveNamespacesPrefixList: [],
   });
 
   signer.computeSignature(unsignedXml, {
     prefix: 'ds',
+    // cac:Signature points at #SignST; the Id lives on ds:Signature, which
+    // XMLDSig allows, because ext:ExtensionContent does not.
+    attrs: { Id: 'SignST' },
     location: {
       reference: "//*[local-name(.)='ExtensionContent']",
       action: 'append',

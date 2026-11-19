@@ -65,13 +65,23 @@ describe('signInvoiceXml', () => {
     expect(signed).toContain('http://www.w3.org/2001/10/xml-exc-c14n#');
   });
 
-  it('references the whole document with the enveloped transform', () => {
+  it('signs the whole document with an empty URI, leaving the root untouched', () => {
     const signed = signInvoiceXml(buildInvoiceXml(factura), cert, key);
 
-    expect(signed).toContain('URI="#_0"');
+    expect(signed).toContain('URI=""');
     expect(signed).toContain(
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature'
     );
+    // The UBL Invoice root allows no attributes, so a generated Id would make
+    // the document schema-invalid.
+    expect(signed).not.toMatch(/<Invoice[^>]*\sId="/);
+  });
+
+  it('marks the ds:Signature with the Id that cac:Signature points at', () => {
+    const signed = signInvoiceXml(buildInvoiceXml(factura), cert, key);
+
+    expect(signed).toContain('<ds:Signature Id="SignST"');
+    expect(signed).toContain('<cbc:URI>#SignST</cbc:URI>');
   });
 
   it('verifies against the signing certificate', () => {
