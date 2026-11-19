@@ -22,6 +22,7 @@ import { SettingsModule } from './settings/settings.module';
 import { StockModule } from './stock';
 import { SunatModule } from './sunat/sunat.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
+import { UbigeoModule } from './ubigeo/ubigeo.module';
 import { UsersModule } from './users/users.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
 import { WorkOrdersModule } from './work-orders/work-orders.module';
@@ -41,6 +42,7 @@ import { WorkOrdersModule } from './work-orders/work-orders.module';
     CategoriesModule,
     ClientsModule,
     SettingsModule,
+    UbigeoModule,
     SunatModule,
     HealthModule,
     LotsModule,
