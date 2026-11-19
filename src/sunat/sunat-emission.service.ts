@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { findUbigeo } from '../ubigeo/ubigeo.catalog';
 import { parseCdr } from './cdr-parser';
 import type { CpeInvoice } from './cpe-document';
 import { unzipCdr, zipInvoice } from './cpe-package';
 import { FiscalNumberingService } from './fiscal-numbering.service';
+import { peruTimestamp } from './peru-time';
 import { SunatBillClient } from './sunat-bill-client';
 import { buildInvoiceXml } from './ubl-invoice.builder';
 import { signInvoiceXml } from './ubl-signer';
@@ -76,6 +78,7 @@ export class SunatEmissionService {
 
     const { certPem, keyPem } = this.loadCertificate();
     const settings = await this.loadCompanySettings();
+    const { date: issueDate, time: issueTime } = peruTimestamp();
 
     const serie =
       sale.documentType === 'factura'
@@ -88,12 +91,14 @@ export class SunatEmissionService {
       documentType: sale.documentType === 'factura' ? '01' : '03',
       serie,
       correlativo: 0, // replaced by the reserved numbering below
-      issueDate: new Date().toISOString().slice(0, 10),
+      issueDate,
+      issueTime,
       currency: 'PEN',
       issuer: {
         ruc: settings.ruc,
         razonSocial: settings.legalName,
         address: settings.address,
+        ubigeo: settings.ubigeo,
       },
       buyer,
       lines: sale.products.map((item) => ({
@@ -146,12 +151,18 @@ export class SunatEmissionService {
         'Configura el RUC y la razón social de la empresa en Configuración → Empresa antes de emitir'
       );
     }
+    if (!settings.ubigeo || !findUbigeo(settings.ubigeo)) {
+      throw new ServiceUnavailableException(
+        'Configura el ubigeo del domicilio fiscal en Configuración → Empresa antes de emitir'
+      );
+    }
     // Explicit return: TS property narrowing is lost across the function
-    // boundary, so re-shape to guarantee non-null ruc/legalName.
+    // boundary, so re-shape to guarantee non-null ruc/legalName/ubigeo.
     return {
       ruc: settings.ruc,
       legalName: settings.legalName,
       address: settings.address,
+      ubigeo: settings.ubigeo,
       facturaSeries: settings.facturaSeries,
       boletaSeries: settings.boletaSeries,
     };

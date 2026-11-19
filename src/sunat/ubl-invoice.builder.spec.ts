@@ -17,11 +17,13 @@ const factura: CpeInvoice = {
   serie: 'F001',
   correlativo: 7,
   issueDate: '2026-11-17',
+  issueTime: '14:35:09',
   currency: 'PEN',
   issuer: {
     ruc: '20131312955',
     razonSocial: 'TALLER SUPERINTENDENCIA SAC',
     address: 'AV. GARCILASO DE LA VEGA 1472',
+    ubigeo: '150101',
   },
   buyer: {
     documentType: '6',
@@ -55,30 +57,54 @@ describe('buildInvoiceXml', () => {
     expect(doc.Invoice.IssueDate).toBe('2026-11-17');
   });
 
+  it('declares the operation type and the issue time SUNAT expects', () => {
+    const xml = buildInvoiceXml(factura);
+
+    expect(xml).toContain('<cbc:InvoiceTypeCode listID="0101">01');
+    expect(xml).toContain('<cbc:IssueTime>14:35:09</cbc:IssueTime>');
+  });
+
   it('identifies the issuer with its RUC and legal name', () => {
     const doc = parse(buildInvoiceXml(factura));
 
     const supplier = doc.Invoice.AccountingSupplierParty.Party;
     expect(supplier.PartyIdentification.ID).toBe('20131312955');
     expect(supplier.PartyName.Name).toBe('TALLER SUPERINTENDENCIA SAC');
-    expect(supplier.PostalAddress.StreetName).toBe(
-      'AV. GARCILASO DE LA VEGA 1472'
+  });
+
+  it('emits the fiscal address as RegistrationAddress with the ubigeo', () => {
+    const doc = parse(buildInvoiceXml(factura));
+
+    const address =
+      doc.Invoice.AccountingSupplierParty.Party.PartyLegalEntity
+        .RegistrationAddress;
+
+    expect(address.ID).toBe('150101');
+    expect(address.AddressTypeCode).toBe('0000');
+    expect(address.AddressLine.Line).toBe('AV. GARCILASO DE LA VEGA 1472');
+    expect(address.Country.IdentificationCode).toBe('PE');
+    expect(doc.Invoice.AccountingSupplierParty.Party.PostalAddress).toBe(
+      undefined
     );
   });
 
-  it('keeps cbc:Note right after InvoiceTypeCode, as the schema requires', () => {
-    const xml = buildInvoiceXml(factura);
+  it('derives department, province and district from the ubigeo', () => {
+    // Calleria / Coronel Portillo / Ucayali: three distinct names, so the
+    // mapping cannot pass by coincidence.
+    const doc = parse(
+      buildInvoiceXml({
+        ...factura,
+        issuer: { ...factura.issuer, ubigeo: '250101' },
+      })
+    );
 
-    const noteAt = xml.indexOf('<cbc:Note');
-    expect(noteAt).toBeGreaterThan(xml.indexOf('<cbc:InvoiceTypeCode>'));
-    expect(noteAt).toBeLessThan(xml.indexOf('<cbc:DocumentCurrencyCode>'));
-  });
+    const address =
+      doc.Invoice.AccountingSupplierParty.Party.PartyLegalEntity
+        .RegistrationAddress;
 
-  it('leaves ext:ExtensionContent without attributes for the signer', () => {
-    const xml = buildInvoiceXml(factura);
-
-    expect(xml).toContain('<ext:ExtensionContent/>');
-    expect(xml).not.toContain('<ext:ExtensionContent id=');
+    expect(address.CityName).toBe('Coronel Portillo');
+    expect(address.CountrySubentity).toBe('Ucayali');
+    expect(address.District).toBe('Calleria');
   });
 
   it('identifies the buyer with its SUNAT document type', () => {
@@ -89,6 +115,60 @@ describe('buildInvoiceXml', () => {
     expect(customer.Party.PartyLegalEntity.RegistrationName).toBe(
       'CLIENTE INDUSTRIAS SAC'
     );
+  });
+
+  it('points cac:Signature at the issuer RUC and the signature Id', () => {
+    const xml = buildInvoiceXml(factura);
+
+    expect(xml).toContain(
+      '<cbc:ID>20131312955</cbc:ID>\n    <cac:SignatoryParty>'
+    );
+    expect(xml).toContain('<cbc:URI>#SignST</cbc:URI>');
+  });
+
+  it('declares the payment terms SUNAT requires', () => {
+    const doc = parse(buildInvoiceXml(factura));
+
+    expect(doc.Invoice.PaymentTerms.ID).toBe('FormaPago');
+    expect(doc.Invoice.PaymentTerms.PaymentMeansID).toBe('Contado');
+  });
+
+  it('uses the SUNAT catalog 05 codes for IGV', () => {
+    const doc = parse(buildInvoiceXml(factura));
+
+    const taxScheme = doc.Invoice.TaxTotal.TaxSubtotal.TaxCategory.TaxScheme;
+
+    expect(taxScheme.ID).toBe('1000');
+    expect(taxScheme.Name).toBe('IGV');
+    expect(taxScheme.TaxTypeCode).toBe('VAT');
+  });
+
+  it('declares the IGV affectation code on every line', () => {
+    const doc = parse(buildInvoiceXml(factura));
+
+    const lines = toArray(doc.Invoice.InvoiceLine);
+    for (const line of lines) {
+      expect(line.TaxTotal.TaxSubtotal.TaxCategory.TaxExemptionReasonCode).toBe(
+        '10'
+      );
+      expect(line.TaxTotal.TaxSubtotal.TaxCategory.Percent).toBe('18.00');
+    }
+  });
+
+  it('exposes the IGV-inclusive unit price through PricingReference', () => {
+    const doc = parse(buildInvoiceXml(factura));
+
+    const lines = toArray(doc.Invoice.InvoiceLine);
+
+    expect(
+      lines[0].PricingReference.AlternativeConditionPrice.PriceAmount
+    ).toBe('118.00');
+    expect(
+      lines[0].PricingReference.AlternativeConditionPrice.PriceTypeCode
+    ).toBe('01');
+    expect(
+      lines[1].PricingReference.AlternativeConditionPrice.PriceAmount
+    ).toBe('59.00');
   });
 
   it('derives per-line taxable base and IGV from inclusive amounts', () => {
@@ -127,6 +207,21 @@ describe('buildInvoiceXml', () => {
 
     const note = toArray(doc.Invoice.Note);
     expect(note[0]).toBe('SON: DOSCIENTOS TREINTA Y SEIS CON 00/100 SOLES');
+  });
+
+  it('keeps cbc:Note right after InvoiceTypeCode, as the schema requires', () => {
+    const xml = buildInvoiceXml(factura);
+
+    const noteAt = xml.indexOf('<cbc:Note');
+    expect(noteAt).toBeGreaterThan(xml.indexOf('<cbc:InvoiceTypeCode>'));
+    expect(noteAt).toBeLessThan(xml.indexOf('<cbc:DocumentCurrencyCode>'));
+  });
+
+  it('leaves ext:ExtensionContent without attributes for the signer', () => {
+    const xml = buildInvoiceXml(factura);
+
+    expect(xml).toContain('<ext:ExtensionContent/>');
+    expect(xml).not.toContain('<ext:ExtensionContent id=');
   });
 
   it('uses type code 03 for boletas', () => {

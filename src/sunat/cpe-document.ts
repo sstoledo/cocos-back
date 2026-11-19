@@ -3,6 +3,11 @@ export type CpeIssuer = {
   ruc: string;
   razonSocial: string;
   address: string | null;
+  /**
+   * INEI 6-digit ubigeo of the fiscal domicile. Department, province and
+   * district are derived from it when building the XML.
+   */
+  ubigeo: string;
 };
 
 /** SUNAT identity document type codes: 6 = RUC, 1 = DNI. */
@@ -31,6 +36,8 @@ export type CpeInvoice = {
   correlativo: number;
   /** ISO date, e.g. 2026-11-17. */
   issueDate: string;
+  /** Emission time in Peru local time, e.g. 14:35:09. */
+  issueTime: string;
   currency: 'PEN';
   issuer: CpeIssuer;
   buyer: CpeBuyer;

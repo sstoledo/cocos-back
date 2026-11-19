@@ -14,11 +14,13 @@ const factura: CpeInvoice = {
   serie: 'F001',
   correlativo: 1,
   issueDate: '2026-11-17',
+  issueTime: '14:35:09',
   currency: 'PEN',
   issuer: {
     ruc: '20131312955',
     razonSocial: 'TALLER SUPERINTENDENCIA SAC',
     address: 'AV. GARCILASO DE LA VEGA 1472',
+    ubigeo: '150101',
   },
   buyer: {
     documentType: '6',

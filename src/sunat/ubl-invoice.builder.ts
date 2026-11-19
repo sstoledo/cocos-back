@@ -1,7 +1,25 @@
+import { findUbigeo } from '../ubigeo/ubigeo.catalog';
 import { montoEnLetras, splitTax } from './amounts';
 import type { CpeInvoice } from './cpe-document';
 
 const IGV_PERCENT = '18.00';
+
+/** SUNAT catalog 01: 0101 = venta interna. */
+const OPERATION_TYPE_CODE = '0101';
+
+/** SUNAT catalog 05: the IGV tax scheme. */
+const IGV_SCHEME_ID = '1000';
+const IGV_SCHEME_NAME = 'IGV';
+const IGV_TAX_TYPE_CODE = 'VAT';
+
+/** SUNAT catalog 07: 10 = gravado, operación onerosa. */
+const IGV_AFFECTATION_CODE = '10';
+
+/** SUNAT catalog 16: 01 = unit price that includes IGV. */
+const PRICE_TYPE_INCLUDING_TAX = '01';
+
+/** SUNAT establishment code of the main address. */
+const MAIN_ESTABLISHMENT_CODE = '0000';
 
 const money = (n: number) => n.toFixed(2);
 const quantity = (n: number) => n.toFixed(2);
@@ -33,18 +51,65 @@ function computeLineAmounts(line: CpeInvoice['lines'][number]): LineAmounts {
   };
 }
 
-function taxSubtotalXml(taxable: number, igv: number): string {
+function taxSchemeXml(): string {
+  return `
+        <cac:TaxScheme>
+          <cbc:ID>${IGV_SCHEME_ID}</cbc:ID>
+          <cbc:Name>${IGV_SCHEME_NAME}</cbc:Name>
+          <cbc:TaxTypeCode>${IGV_TAX_TYPE_CODE}</cbc:TaxTypeCode>
+        </cac:TaxScheme>`;
+}
+
+/**
+ * Document-level subtotal: mirrors an accepted CPE, which omits the rate and
+ * the affectation code here and declares them per line.
+ */
+function totalTaxSubtotalXml(taxable: number, igv: number): string {
+  return `
+      <cac:TaxSubtotal>
+        <cbc:TaxableAmount currencyID="PEN">${money(taxable)}</cbc:TaxableAmount>
+        <cbc:TaxAmount currencyID="PEN">${money(igv)}</cbc:TaxAmount>
+        <cac:TaxCategory>${taxSchemeXml()}
+        </cac:TaxCategory>
+      </cac:TaxSubtotal>`;
+}
+
+/** Line subtotal: carries the IGV rate and the affectation code. */
+function lineTaxSubtotalXml(taxable: number, igv: number): string {
   return `
       <cac:TaxSubtotal>
         <cbc:TaxableAmount currencyID="PEN">${money(taxable)}</cbc:TaxableAmount>
         <cbc:TaxAmount currencyID="PEN">${money(igv)}</cbc:TaxAmount>
         <cac:TaxCategory>
           <cbc:Percent>${IGV_PERCENT}</cbc:Percent>
-          <cac:TaxScheme>
-            <cbc:ID>IGV</cbc:ID>
-          </cac:TaxScheme>
+          <cbc:TaxExemptionReasonCode>${IGV_AFFECTATION_CODE}</cbc:TaxExemptionReasonCode>${taxSchemeXml()}
         </cac:TaxCategory>
       </cac:TaxSubtotal>`;
+}
+
+function registrationAddressXml(invoice: CpeInvoice): string {
+  const ubigeo = findUbigeo(invoice.issuer.ubigeo);
+  if (!ubigeo) {
+    throw new Error(`Unknown ubigeo code: ${invoice.issuer.ubigeo}`);
+  }
+
+  return `
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>${escapeXml(invoice.issuer.razonSocial)}</cbc:RegistrationName>
+        <cac:RegistrationAddress>
+          <cbc:ID>${ubigeo.code}</cbc:ID>
+          <cbc:AddressTypeCode>${MAIN_ESTABLISHMENT_CODE}</cbc:AddressTypeCode>
+          <cbc:CityName>${escapeXml(ubigeo.province)}</cbc:CityName>
+          <cbc:CountrySubentity>${escapeXml(ubigeo.department)}</cbc:CountrySubentity>
+          <cbc:District>${escapeXml(ubigeo.district)}</cbc:District>
+          <cac:AddressLine>
+            <cbc:Line>${escapeXml(invoice.issuer.address ?? '')}</cbc:Line>
+          </cac:AddressLine>
+          <cac:Country>
+            <cbc:IdentificationCode>PE</cbc:IdentificationCode>
+          </cac:Country>
+        </cac:RegistrationAddress>
+      </cac:PartyLegalEntity>`;
 }
 
 /**
@@ -68,9 +133,15 @@ export function buildInvoiceXml(invoice: CpeInvoice): string {
     <cbc:ID>${id}</cbc:ID>
     <cbc:InvoicedQuantity unitCode="NIU">${quantity(line.quantity)}</cbc:InvoicedQuantity>
     <cbc:LineExtensionAmount currencyID="PEN">${money(amounts.base)}</cbc:LineExtensionAmount>
+    <cac:PricingReference>
+      <cac:AlternativeConditionPrice>
+        <cbc:PriceAmount currencyID="PEN">${money(line.unitPriceInclusive)}</cbc:PriceAmount>
+        <cbc:PriceTypeCode>${PRICE_TYPE_INCLUDING_TAX}</cbc:PriceTypeCode>
+      </cac:AlternativeConditionPrice>
+    </cac:PricingReference>
     <cac:TaxTotal>
       <cbc:TaxAmount currencyID="PEN">${money(amounts.igv)}</cbc:TaxAmount>
-${taxSubtotalXml(amounts.base, amounts.igv)}
+${lineTaxSubtotalXml(amounts.base, amounts.igv)}
     </cac:TaxTotal>
     <cac:Item>
       <cbc:Description>${escapeXml(line.description)}</cbc:Description>
@@ -93,11 +164,12 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
   <cbc:CustomizationID>2.0</cbc:CustomizationID>
   <cbc:ID>${invoice.serie}-${invoice.correlativo}</cbc:ID>
   <cbc:IssueDate>${invoice.issueDate}</cbc:IssueDate>
-  <cbc:InvoiceTypeCode>${invoice.documentType}</cbc:InvoiceTypeCode>
+  <cbc:IssueTime>${invoice.issueTime}</cbc:IssueTime>
+  <cbc:InvoiceTypeCode listID="${OPERATION_TYPE_CODE}">${invoice.documentType}</cbc:InvoiceTypeCode>
   <cbc:Note languageLocaleID="1000">${montoEnLetras(total)}</cbc:Note>
   <cbc:DocumentCurrencyCode>${invoice.currency}</cbc:DocumentCurrencyCode>
   <cac:Signature>
-    <cbc:ID>SignST</cbc:ID>
+    <cbc:ID>${invoice.issuer.ruc}</cbc:ID>
     <cac:SignatoryParty>
       <cac:PartyIdentification>
         <cbc:ID>${invoice.issuer.ruc}</cbc:ID>
@@ -119,17 +191,7 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
       </cac:PartyIdentification>
       <cac:PartyName>
         <cbc:Name>${escapeXml(invoice.issuer.razonSocial)}</cbc:Name>
-      </cac:PartyName>
-      <cac:PostalAddress>
-        <cbc:StreetName>${escapeXml(invoice.issuer.address ?? '')}</cbc:StreetName>
-        <cbc:CountrySubentity>PERU</cbc:CountrySubentity>
-        <cac:Country>
-          <cbc:IdentificationCode>PE</cbc:IdentificationCode>
-        </cac:Country>
-      </cac:PostalAddress>
-      <cac:PartyLegalEntity>
-        <cbc:RegistrationName>${escapeXml(invoice.issuer.razonSocial)}</cbc:RegistrationName>
-      </cac:PartyLegalEntity>
+      </cac:PartyName>${registrationAddressXml(invoice)}
     </cac:Party>
   </cac:AccountingSupplierParty>
   <cac:AccountingCustomerParty>
@@ -142,9 +204,13 @@ ${taxSubtotalXml(amounts.base, amounts.igv)}
       </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingCustomerParty>
+  <cac:PaymentTerms>
+    <cbc:ID>FormaPago</cbc:ID>
+    <cbc:PaymentMeansID>Contado</cbc:PaymentMeansID>
+  </cac:PaymentTerms>
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="PEN">${money(totalIgv)}</cbc:TaxAmount>
-${taxSubtotalXml(totalBase, totalIgv)}
+${totalTaxSubtotalXml(totalBase, totalIgv)}
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
     <cbc:LineExtensionAmount currencyID="PEN">${money(totalBase)}</cbc:LineExtensionAmount>

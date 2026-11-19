@@ -93,6 +93,7 @@ const SETTINGS = {
   ruc: '20131312955',
   legalName: 'TALLER SUPERINTENDENCIA SAC',
   address: 'AV. GARCILASO 1472',
+  ubigeo: '150101',
   facturaSeries: 'F001',
   boletaSeries: 'B001',
 };
@@ -173,6 +174,10 @@ describe('SunatEmissionService', () => {
     expect(xml).toContain('Cambio de aceite');
     expect(xml).toContain('SON: CIENTO DIECIOCHO CON 00/100 SOLES');
     expect(xml).toContain('20131312955');
+    expect(xml).toMatch(/<cbc:IssueDate>\d{4}-\d{2}-\d{2}<\/cbc:IssueDate>/);
+    expect(xml).toMatch(/<cbc:IssueTime>\d{2}:\d{2}:\d{2}<\/cbc:IssueTime>/);
+    expect(xml).toContain('<cbc:ID>150101</cbc:ID>');
+    expect(xml).toContain('<cbc:District>Lima</cbc:District>');
   });
 
   it('rejects a sale already emitted without touching SUNAT', async () => {
@@ -227,6 +232,26 @@ describe('SunatEmissionService', () => {
 
     await expect(service.emit('sale-1')).rejects.toThrow(BadRequestException);
     expect(prisma.sale.update).not.toHaveBeenCalled();
+  });
+
+  it('requires the fiscal ubigeo before emitting', async () => {
+    const prisma = buildPrisma();
+    prisma.sale.findFirst.mockResolvedValue(SALE);
+    prisma.companySettings.findFirst.mockResolvedValue({
+      ...SETTINGS,
+      ubigeo: null,
+    });
+    const billClient = buildBillClient();
+
+    const service = buildService(prisma, billClient, {
+      SUNAT_CERT_PATH: CERT_PATH,
+      SUNAT_CERT_KEY_PATH: KEY_PATH,
+    });
+
+    await expect(service.emit('sale-1')).rejects.toThrow(
+      ServiceUnavailableException
+    );
+    expect(billClient.sendBill).not.toHaveBeenCalled();
   });
 
   it('requires company fiscal identity before emitting', async () => {
