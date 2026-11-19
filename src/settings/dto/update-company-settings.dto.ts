@@ -18,6 +18,11 @@ export class UpdateCompanySettingsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(6)
+  ubigeo?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(10)
   facturaSeries?: string;
 

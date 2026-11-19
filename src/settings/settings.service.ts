@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { isValidRuc } from '../clients/validators/identification.validator';
 import { PrismaService } from '../prisma/prisma.service';
+import { findUbigeo } from '../ubigeo/ubigeo.catalog';
 import { UpdateCompanySettingsDto } from './dto/update-company-settings.dto';
 @Injectable()
 export class SettingsService {
@@ -21,6 +22,13 @@ export class SettingsService {
       }
     }
 
+    const ubigeo = dto.ubigeo?.trim();
+    if (ubigeo !== undefined && ubigeo !== '' && !findUbigeo(ubigeo)) {
+      throw new BadRequestException(
+        'ubigeo must be a 6-digit INEI code from the catalog'
+      );
+    }
+
     const settings = await this.getOrCreate();
 
     return this.prisma.companySettings.update({
@@ -29,6 +37,7 @@ export class SettingsService {
         ...(dto.ruc !== undefined ? { ruc: dto.ruc } : {}),
         ...(dto.legalName !== undefined ? { legalName: dto.legalName } : {}),
         ...(dto.address !== undefined ? { address: dto.address } : {}),
+        ...(ubigeo !== undefined ? { ubigeo: ubigeo || null } : {}),
         ...(dto.facturaSeries !== undefined
           ? { facturaSeries: dto.facturaSeries.trim() }
           : {}),

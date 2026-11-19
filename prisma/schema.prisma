@@ -527,6 +527,9 @@ model CompanySettings {
   ruc           String?
   legalName     String?  @map("legal_name")
   address       String?
+  /// INEI 6-digit ubigeo of the fiscal domicile, validated against the catalog.
+  /// Department, province and district are derived from it, never stored.
+  ubigeo        String?
   facturaSeries String   @default("F001") @map("factura_series")
   boletaSeries  String   @default("B001") @map("boleta_series")
   createdAt     DateTime @default(now()) @map("created_at")
